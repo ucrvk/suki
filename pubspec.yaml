@@ -12,6 +12,7 @@ dependencies:
   supabase_flutter: 2.12.4
   shared_preferences: ^2.5.3
   cached_network_image: ^3.4.1
+  http: ^1.2.2
   url_launcher: ^6.3.1
   package_info_plus: ^8.0.2
 

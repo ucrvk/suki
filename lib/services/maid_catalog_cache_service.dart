@@ -1,5 +1,6 @@
 ﻿
 import 'supabase_service.dart';
+import 'maid_image_manifest_service.dart';
 
 class MaidCatalogSnapshot {
   const MaidCatalogSnapshot({
@@ -33,6 +34,8 @@ class MaidCatalogCacheService {
       return _snapshot!;
     }
 
+    await MaidImageManifestService.fetchManifest(forceRefresh: forceRefresh);
+
     final decoded = await SupabaseService.client.from('suki_booking').select('*').limit(1);
     if (decoded.isEmpty) {
       throw Exception('返回数据为空');
@@ -56,8 +59,10 @@ class MaidCatalogCacheService {
       final vrcid = (maid['vrcid'] ?? '').toString().trim();
       if (vrcid.isEmpty) continue;
 
+      final resolvedImage = MaidImageManifestService.resolveImageUrl(vrcid);
+      maid['image'] = resolvedImage;
       maidByVrcid[vrcid] = maid;
-      maidImageByVrcid[vrcid] = (maid['image'] ?? '').toString().trim();
+      maidImageByVrcid[vrcid] = resolvedImage;
       if (_shouldHideMaid(maid)) {
         hiddenMaidVrcids.add(vrcid);
       }
