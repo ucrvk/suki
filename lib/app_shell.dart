@@ -7,7 +7,7 @@ import 'pages/reviews_page.dart';
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
-    this.forceAllBookableForTest = true,
+    this.forceAllBookableForTest = false,
   });
 
   final bool forceAllBookableForTest;

@@ -1,7 +1,7 @@
-name: suki
+﻿name: suki
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.1.0+1
+version: 1.0.0+1
 
 environment:
   sdk: ^3.11.1
@@ -12,6 +12,8 @@ dependencies:
   supabase_flutter: 2.12.4
   shared_preferences: ^2.5.3
   cached_network_image: ^3.4.1
+  url_launcher: ^6.3.1
+  package_info_plus: ^8.0.2
 
 dev_dependencies:
   flutter_test:

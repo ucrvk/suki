@@ -154,7 +154,7 @@ class MaidCard extends StatelessWidget {
     required MaidStatus status,
   }) {
     final enabled = canBook && !submitting;
-    final label = canBook ? '预约' : (status == MaidStatus.full ? '预约已满' : '不营业');
+    final label = canBook ? '预约' : (status == MaidStatus.full ? '预约已满' : '暂时不营业');
 
     final bg = enabled ? const Color(0xFFFF6FB5) : const Color(0xFFD5CCD9);
     return SizedBox(

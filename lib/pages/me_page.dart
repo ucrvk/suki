@@ -1,7 +1,10 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
@@ -20,6 +23,7 @@ class _MePageState extends State<MePage> {
   String? _email;
   String? _username;
   String? _announcement;
+  String _appVersion = '-';
   StreamSubscription<AuthState>? _authStateSub;
 
   final _emailController = TextEditingController();
@@ -30,6 +34,7 @@ class _MePageState extends State<MePage> {
     super.initState();
     _restoreAuth();
     _loadAnnouncement();
+    _loadAppVersion();
     _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((event) {
       _applySession(event.session);
     });
@@ -41,6 +46,23 @@ class _MePageState extends State<MePage> {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final version = info.version.trim();
+      final build = info.buildNumber.trim();
+      if (!mounted) return;
+      setState(() {
+        _appVersion = build.isEmpty ? 'v$version' : 'v$version+$build';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _appVersion = 'v1.0.0+1';
+      });
+    }
   }
 
   Future<void> _restoreAuth() async {
@@ -252,9 +274,9 @@ class _MePageState extends State<MePage> {
             child: SizedBox(
               width: double.infinity,
               child: FilledButton(
-              onPressed: _showLoginDialog,
-              child: const Text('登录'),
-            ),
+                onPressed: _showLoginDialog,
+                child: const Text('登录'),
+              ),
             ),
           ),
         ]),
@@ -314,10 +336,35 @@ class _MePageState extends State<MePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('版本号', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250))),
+            subtitle: Text(_appVersion, style: const TextStyle(color: Color(0xFF7A7188))),
+          ),
           const ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('版本号', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250))),
-            subtitle: Text('v1.0.0', style: TextStyle(color: Color(0xFF7A7188))),
+            leading: Icon(Icons.badge_outlined),
+            title: Text('原版及后端作者：鱼七', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF3A3250))),
+            subtitle: Text('本改版作者：wenwen12305', style: TextStyle(color: Color(0xFF7A7188))),
+          ),
+          ListTile(
+            leading: const Icon(Icons.open_in_new_outlined),
+            title: const Text('访问项目github', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF3A3250))),
+            subtitle: const Text(
+              'ucrvk/suki',
+              style: TextStyle(color: Color(0xFF7A7188)),
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              final uri = Uri.parse('https://github.com/ucrvk/suki');
+              final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+              if (opened) return;
+
+              await Clipboard.setData(const ClipboardData(text: 'https://github.com/ucrvk/suki'));
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('无法直接打开浏览器，已复制链接到剪贴板')),
+              );
+            },
           ),
           ListTile(
             leading: const Icon(Icons.gavel_outlined),
