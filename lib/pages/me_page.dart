@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
+import 'account_settings_page.dart';
 
 class MePage extends StatefulWidget {
   const MePage({super.key});
@@ -288,23 +289,41 @@ class _MePageState extends State<MePage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: ListTile(
-        leading: const CircleAvatar(
-          backgroundColor: Color(0xFFFFEAF4),
-          child: Icon(Icons.person, color: Color(0xFFFF5DAF)),
-        ),
-        title: Text(
-          _displayName(),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250)),
-        ),
-        subtitle: Text(
-          _email ?? '',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Color(0xFF7A7188)),
-        ),
+      child: Column(
+        children: [
+          ListTile(
+            leading: const CircleAvatar(
+              backgroundColor: Color(0xFFFFEAF4),
+              child: Icon(Icons.person, color: Color(0xFFFF5DAF)),
+            ),
+            title: Text(
+              _displayName(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250)),
+            ),
+            subtitle: Text(
+              _email ?? '',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Color(0xFF7A7188)),
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.settings_outlined),
+            title: const Text(
+              '账户设置',
+              style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF3A3250)),
+            ),
+            trailing: const Icon(Icons.chevron_right, color: Color(0xFF7A7188)),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
+              );
+            },
+          ),
+        ],
       ),
     );
   }

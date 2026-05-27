@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 class MaidImageManifestService {
   MaidImageManifestService._();
 
-  static const String baseUrl = 'http://127.0.0.1:6988/';
+  static const String baseUrl = 'https://api.wenwen12305.top/suki/';
   static const String _manifestPath = 'manifest.json';
   static const String _imagesPath = 'images';
 

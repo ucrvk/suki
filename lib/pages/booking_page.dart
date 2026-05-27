@@ -9,6 +9,7 @@ import '../services/booking_service.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/maid_card.dart';
+import '../widgets/random_maid_dialog.dart';
 
 class MaidViewData {
   const MaidViewData({
@@ -27,10 +28,7 @@ class MaidViewData {
 }
 
 class BookingPage extends StatefulWidget {
-  const BookingPage({
-    super.key,
-    this.forceAllBookableForTest = false,
-  });
+  const BookingPage({super.key, this.forceAllBookableForTest = false});
 
   final bool forceAllBookableForTest;
 
@@ -58,7 +56,9 @@ class _BookingPageState extends State<BookingPage> {
   void initState() {
     super.initState();
     _currentUser = SupabaseService.client.auth.currentUser;
-    _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((event) {
+    _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((
+      event,
+    ) {
       if (!mounted) return;
       setState(() {
         _currentUser = event.session?.user;
@@ -111,7 +111,9 @@ class _BookingPageState extends State<BookingPage> {
     });
 
     try {
-      final snapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
+      final snapshot = await MaidCatalogCacheService.getSnapshot(
+        forceRefresh: forceRefresh,
+      );
 
       setState(() {
         _maids = snapshot.maids;
@@ -154,7 +156,8 @@ class _BookingPageState extends State<BookingPage> {
     if (widget.forceAllBookableForTest) return MaidStatus.available;
     final disabled = maid['disabled'] == true;
     if (!_bookingEnabled || disabled) return MaidStatus.closed;
-    if (_reservationCountForMaid(maid) >= _fullThreshold) return MaidStatus.full;
+    if (_reservationCountForMaid(maid) >= _fullThreshold)
+      return MaidStatus.full;
     return MaidStatus.available;
   }
 
@@ -187,7 +190,9 @@ class _BookingPageState extends State<BookingPage> {
     }
     items.sort((a, b) {
       if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
-      final statusCompare = _statusPriority(a.status).compareTo(_statusPriority(b.status));
+      final statusCompare = _statusPriority(
+        a.status,
+      ).compareTo(_statusPriority(b.status));
       if (statusCompare != 0) return statusCompare;
       return a.originalIndex.compareTo(b.originalIndex);
     });
@@ -201,7 +206,9 @@ class _BookingPageState extends State<BookingPage> {
     final name = (maid['name'] ?? '').toString().trim();
     if (name == '鱼七') return true;
 
-    final tags = (maid['tags'] as List?)?.map((e) => e.toString()).toList() ?? const <String>[];
+    final tags =
+        (maid['tags'] as List?)?.map((e) => e.toString()).toList() ??
+        const <String>[];
     return tags.any((tag) => tag.contains('前台'));
   }
 
@@ -213,7 +220,9 @@ class _BookingPageState extends State<BookingPage> {
       final name = (maid['name'] ?? '').toString().toLowerCase();
       final vrcid = (maid['vrcid'] ?? '').toString().toLowerCase();
       final signature = (maid['signature'] ?? '').toString().toLowerCase();
-      final tags = (maid['tags'] as List?)?.map((e) => e.toString().toLowerCase()) ?? const [];
+      final tags =
+          (maid['tags'] as List?)?.map((e) => e.toString().toLowerCase()) ??
+          const [];
       return name.contains(keyword) ||
           vrcid.contains(keyword) ||
           signature.contains(keyword) ||
@@ -225,9 +234,7 @@ class _BookingPageState extends State<BookingPage> {
     return _submittingKeys.any((key) => key.startsWith('$uniqueId|'));
   }
 
-  Future<void> _onBookTap({
-    required MaidViewData item,
-  }) async {
+  Future<void> _onBookTap({required MaidViewData item}) async {
     if (item.status != MaidStatus.available) return;
 
     if (_currentUser == null) {
@@ -262,8 +269,8 @@ class _BookingPageState extends State<BookingPage> {
                     Text(
                       '确认预约',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Text('女仆：${(item.maid['name'] ?? '未命名').toString()}'),
@@ -280,14 +287,18 @@ class _BookingPageState extends State<BookingPage> {
                           label: Text(BookingService.slotA),
                           selected: selectedSlot == BookingService.slotA,
                           onSelected: (_) {
-                            setSheetState(() => selectedSlot = BookingService.slotA);
+                            setSheetState(
+                              () => selectedSlot = BookingService.slotA,
+                            );
                           },
                         ),
                         ChoiceChip(
                           label: Text(BookingService.slotB),
                           selected: selectedSlot == BookingService.slotB,
                           onSelected: (_) {
-                            setSheetState(() => selectedSlot = BookingService.slotB);
+                            setSheetState(
+                              () => selectedSlot = BookingService.slotB,
+                            );
                           },
                         ),
                       ],
@@ -296,7 +307,8 @@ class _BookingPageState extends State<BookingPage> {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       value: withFriend,
-                      onChanged: (value) => setSheetState(() => withFriend = value),
+                      onChanged: (value) =>
+                          setSheetState(() => withFriend = value),
                       title: const Text('是否带朋友'),
                     ),
                     const SizedBox(height: 8),
@@ -331,7 +343,9 @@ class _BookingPageState extends State<BookingPage> {
         withFriend: withFriend,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('预约成功')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('预约成功')));
       MaidCatalogCacheService.invalidate();
       await _fetchMaids(forceRefresh: true);
     } catch (e) {
@@ -353,8 +367,9 @@ class _BookingPageState extends State<BookingPage> {
   Widget build(BuildContext context) {
     final visibleMaids = _buildSortedMaids();
     final totalCount = visibleMaids.length;
-    final availableCount =
-        visibleMaids.where((item) => item.status == MaidStatus.available).length;
+    final availableCount = visibleMaids
+        .where((item) => item.status == MaidStatus.available)
+        .length;
 
     return Scaffold(
       appBar: AppBar(
@@ -376,6 +391,19 @@ class _BookingPageState extends State<BookingPage> {
           ],
         ),
       ),
+      floatingActionButton: _loading || _error != null
+          ? null
+          : FloatingActionButton(
+              onPressed: () {
+                final visibleMaids = _buildSortedMaids()
+                    .where((item) => !_shouldHideMaid(item.maid))
+                    .map((item) => item.maid)
+                    .toList();
+                showRandomMaidDialog(context, visibleMaids);
+              },
+              tooltip: '随机女仆',
+              child: const Icon(Icons.casino_outlined),
+            ),
       body: _buildBody(),
     );
   }
@@ -454,7 +482,10 @@ class _BookingPageState extends State<BookingPage> {
                         Container(
                           width: double.infinity,
                           margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFFFEAF4),
                             borderRadius: BorderRadius.circular(12),
@@ -481,20 +512,17 @@ class _BookingPageState extends State<BookingPage> {
                     mainAxisSpacing: 14,
                     childAspectRatio: 0.92,
                   ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final item = visibleMaids[index];
-                      return MaidCard(
-                        maid: item.maid,
-                        status: item.status,
-                        isFavorite: item.isFavorite,
-                        onToggleFavorite: () => _toggleFavorite(item.uniqueId),
-                        onBook: () => _onBookTap(item: item),
-                        submitting: _isSubmittingAnySlot(item.uniqueId),
-                      );
-                    },
-                    childCount: visibleMaids.length,
-                  ),
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final item = visibleMaids[index];
+                    return MaidCard(
+                      maid: item.maid,
+                      status: item.status,
+                      isFavorite: item.isFavorite,
+                      onToggleFavorite: () => _toggleFavorite(item.uniqueId),
+                      onBook: () => _onBookTap(item: item),
+                      submitting: _isSubmittingAnySlot(item.uniqueId),
+                    );
+                  }, childCount: visibleMaids.length),
                 ),
               ),
             ],
