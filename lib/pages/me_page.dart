@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
 import 'account_settings_page.dart';
+import '../widgets/main_app_bar.dart';
 
 class MePage extends StatefulWidget {
   const MePage({super.key});
@@ -220,13 +221,8 @@ class _MePageState extends State<MePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: const Color(0xFFF3EFF5),
-        title: const Text(
-          '我',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
+      appBar: MainAppBar(
+        title: const Text('我'),
         actions: [
           if (_isLoggedIn)
             IconButton(

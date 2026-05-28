@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/supabase_service.dart';
+import '../widgets/main_app_bar.dart';
 
 class AccountSettingsPage extends StatefulWidget {
   const AccountSettingsPage({super.key});
@@ -158,13 +159,8 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: const Color(0xFFF3EFF5),
-        title: const Text(
-          '账户设置',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
+      appBar: const MainAppBar(
+        title: Text('账户设置'),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),

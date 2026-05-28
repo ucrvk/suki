@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
+import '../widgets/main_app_bar.dart';
 
 class MaidOption {
   const MaidOption({
@@ -503,10 +504,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: const Color(0xFFF3EFF5),
-        title: Text('评价 (${_rawReviews.length})', style: const TextStyle(fontWeight: FontWeight.w700)),
+      appBar: MainAppBar(
+        title: Text('评价 (${_rawReviews.length})'),
       ),
       body: _buildBody(),
       floatingActionButton: _loading

@@ -10,6 +10,7 @@ import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/maid_card.dart';
 import '../widgets/random_maid_dialog.dart';
+import '../widgets/main_app_bar.dart';
 
 class MaidViewData {
   const MaidViewData({
@@ -156,8 +157,9 @@ class _BookingPageState extends State<BookingPage> {
     if (widget.forceAllBookableForTest) return MaidStatus.available;
     final disabled = maid['disabled'] == true;
     if (!_bookingEnabled || disabled) return MaidStatus.closed;
-    if (_reservationCountForMaid(maid) >= _fullThreshold)
+    if (_reservationCountForMaid(maid) >= _fullThreshold) {
       return MaidStatus.full;
+    }
     return MaidStatus.available;
   }
 
@@ -372,18 +374,18 @@ class _BookingPageState extends State<BookingPage> {
         .length;
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: const Color(0xFFF3EFF5),
+      appBar: MainAppBar(
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Expanded(
-              child: Text('预约', style: TextStyle(fontWeight: FontWeight.w700)),
+            const Text(
+              '预约',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
+            const SizedBox(width: 6),
             Text(
               '($availableCount/$totalCount)',
               style: const TextStyle(
-                fontSize: 16,
                 fontWeight: FontWeight.w800,
                 color: Color(0xFF3A3250),
               ),

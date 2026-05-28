@@ -1,14 +1,12 @@
 ﻿import 'package:flutter/material.dart';
 
 import 'pages/booking_page.dart';
+import 'pages/guestbook_page.dart';
 import 'pages/me_page.dart';
 import 'pages/reviews_page.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({
-    super.key,
-    this.forceAllBookableForTest = false,
-  });
+  const AppShell({super.key, this.forceAllBookableForTest = false});
 
   final bool forceAllBookableForTest;
 
@@ -52,6 +50,7 @@ class _AppShellState extends State<AppShell> {
         children: [
           BookingPage(forceAllBookableForTest: widget.forceAllBookableForTest),
           const ReviewsPage(),
+          const GuestbookPage(),
           const MePage(),
         ],
       ),
@@ -65,7 +64,11 @@ class _AppShellState extends State<AppShell> {
         },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.calendar_month), label: '预约'),
-          NavigationDestination(icon: Icon(Icons.reviews_outlined), label: '评价'),
+          NavigationDestination(
+            icon: Icon(Icons.reviews_outlined),
+            label: '评价',
+          ),
+          NavigationDestination(icon: Icon(Icons.mail_outline), label: '留言'),
           NavigationDestination(icon: Icon(Icons.person), label: '我'),
         ],
       ),
