@@ -1,0 +1,103 @@
+name: Beta APK Pre-release (arm64)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - pubspec.yaml
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Read version from pubspec.yaml
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Decode keystore
+        shell: bash
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+
+      - name: Create key.properties
+        shell: bash
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          keyAlias=${{ vars.ANDROID_KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Build signed APK (arm64)
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Find previous beta tag
+        id: prev_tag
+        shell: bash
+        run: |
+          git fetch --tags
+          PREV_TAG=$(git tag --sort=-version:refname | grep -vx "${{ steps.version.outputs.tag }}" | head -n 1 || true)
+          echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APK
+        shell: bash
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          mv build/app/outputs/flutter-apk/app-release.apk \
+            build/app/outputs/flutter-apk/vrc_monitor-arm64-v8a-$VERSION.apk
+
+      - name: Create release notes
+        shell: bash
+        run: |
+          if [ -n "${{ steps.prev_tag.outputs.prev_tag }}" ]; then
+            cat > release_notes.md <<EOF
+          Auto build from main branch because pubspec.yaml changed.
+
+          [Full Changelog](https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.prev_tag }}...${{ steps.version.outputs.tag }})
+          EOF
+          else
+            cat > release_notes.md <<EOF
+          Auto build from main branch because pubspec.yaml changed.
+          EOF
+          fi
+
+      - name: Create GitHub pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            build/app/outputs/flutter-apk/vrc_monitor-arm64-v8a-${{ steps.version.outputs.version }}.apk \
+          --target main \
+          --title "${{ steps.version.outputs.tag }}" \
+          --notes-file release_notes.md \
+          --prerelease
