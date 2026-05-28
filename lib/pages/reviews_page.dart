@@ -1,5 +1,6 @@
 ﻿import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/maid_catalog_cache_service.dart';
@@ -554,35 +555,21 @@ class _ReviewsPageState extends State<ReviewsPage> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final count = _columnCount(constraints.maxWidth);
-          final rowCount = (_groups.length / count).ceil();
 
-          return ListView.builder(
+          return MasonryGridView.builder(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
-            itemCount: rowCount,
-            itemBuilder: (context, rowIndex) {
-              final start = rowIndex * count;
-              final end = (start + count) > _groups.length ? _groups.length : (start + count);
-              final rowItems = _groups.sublist(start, end);
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (int i = 0; i < count; i++) ...[
-                      Expanded(
-                        child: i < rowItems.length ? _buildGroupCard(rowItems[i]) : const SizedBox.shrink(),
-                      ),
-                      if (i != count - 1) const SizedBox(width: 10),
-                    ],
-                  ],
-                ),
-              );
-            },
+            gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: count,
+            ),
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            itemCount: _groups.length,
+            itemBuilder: (context, index) => _buildGroupCard(_groups[index]),
           );
         },
       ),
     );
   }
 }
+

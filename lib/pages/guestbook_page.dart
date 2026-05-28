@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -306,41 +307,23 @@ class _GuestbookPageState extends State<GuestbookPage> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final count = _columnCount(constraints.maxWidth);
-          final totalItems = _entries.length;
-          final hasLoadMore = _hasMore || _isLoading;
-          final rowCount = (totalItems / count).ceil() + (hasLoadMore ? 1 : 0);
+          final hasTailTile = _hasMore || _isLoading;
+          final itemCount = _entries.length + (hasTailTile ? 1 : 0);
 
-          return ListView.builder(
+          return MasonryGridView.builder(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
-            itemCount: rowCount,
-            itemBuilder: (context, rowIndex) {
-              // Last row is the load-more widget
-              if (hasLoadMore && rowIndex == rowCount - 1) {
-                return _buildLoadMoreWidget();
+            gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: count,
+            ),
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            itemCount: itemCount,
+            itemBuilder: (context, index) {
+              if (hasTailTile && index == itemCount - 1) {
+                return _buildLoadMoreWidgetTile();
               }
-
-              final start = rowIndex * count;
-              final end =
-                  (start + count) > totalItems ? totalItems : (start + count);
-              final rowItems = _entries.sublist(start, end);
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (int i = 0; i < count; i++) ...[
-                      Expanded(
-                        child: i < rowItems.length
-                            ? _buildEntryCard(rowItems[i])
-                            : const SizedBox.shrink(),
-                      ),
-                      if (i != count - 1) const SizedBox(width: 10),
-                    ],
-                  ],
-                ),
-              );
+              return _buildEntryCard(_entries[index]);
             },
           );
         },
@@ -493,7 +476,7 @@ class _GuestbookPageState extends State<GuestbookPage> {
     );
   }
 
-  Widget _buildLoadMoreWidget() {
+  Widget _buildLoadMoreWidgetTile() {
     if (_isLoading && _entries.isNotEmpty) {
       return const Padding(
         padding: EdgeInsets.all(16),
@@ -595,3 +578,4 @@ class _GuestbookPageState extends State<GuestbookPage> {
     return '${dateTime.year}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.day.toString().padLeft(2, '0')}';
   }
 }
+
