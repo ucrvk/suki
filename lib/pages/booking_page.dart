@@ -507,24 +507,35 @@ class _BookingPageState extends State<BookingPage> {
               ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                sliver: SliverGrid(
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: count,
-                    crossAxisSpacing: 14,
-                    mainAxisSpacing: 14,
-                    childAspectRatio: 0.92,
+                sliver: SliverToBoxAdapter(
+                  child: LayoutBuilder(
+                    builder: (context, innerConstraints) {
+                      const spacing = 14.0;
+                      final itemWidth =
+                          (innerConstraints.maxWidth - spacing * (count - 1)) /
+                          count;
+
+                      return Wrap(
+                        spacing: spacing,
+                        runSpacing: spacing,
+                        children: [
+                          for (final item in visibleMaids)
+                            SizedBox(
+                              width: itemWidth,
+                              child: MaidCard(
+                                maid: item.maid,
+                                status: item.status,
+                                isFavorite: item.isFavorite,
+                                onToggleFavorite: () =>
+                                    _toggleFavorite(item.uniqueId),
+                                onBook: () => _onBookTap(item: item),
+                                submitting: _isSubmittingAnySlot(item.uniqueId),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
                   ),
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    final item = visibleMaids[index];
-                    return MaidCard(
-                      maid: item.maid,
-                      status: item.status,
-                      isFavorite: item.isFavorite,
-                      onToggleFavorite: () => _toggleFavorite(item.uniqueId),
-                      onBook: () => _onBookTap(item: item),
-                      submitting: _isSubmittingAnySlot(item.uniqueId),
-                    );
-                  }, childCount: visibleMaids.length),
                 ),
               ),
             ],
