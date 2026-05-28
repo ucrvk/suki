@@ -204,7 +204,7 @@ class _GuestbookPageState extends State<GuestbookPage> {
       return;
     }
 
-    final controller = TextEditingController();
+    String draftContent = '';
     final shouldSubmit = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -229,10 +229,10 @@ class _GuestbookPageState extends State<GuestbookPage> {
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: controller,
                 minLines: 3,
                 maxLines: 6,
                 maxLength: 300,
+                onChanged: (value) => draftContent = value,
                 decoration: const InputDecoration(
                   hintText: '请输入留言内容',
                   border: OutlineInputBorder(),
@@ -243,7 +243,7 @@ class _GuestbookPageState extends State<GuestbookPage> {
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () {
-                    if (controller.text.trim().isEmpty) {
+                    if (draftContent.trim().isEmpty) {
                       ScaffoldMessenger.of(sheetContext).showSnackBar(
                         const SnackBar(content: Text('留言内容不能为空')),
                       );
@@ -260,10 +260,7 @@ class _GuestbookPageState extends State<GuestbookPage> {
       },
     );
 
-    if (shouldSubmit != true) {
-      controller.dispose();
-      return;
-    }
+    if (shouldSubmit != true) return;
 
     setState(() {
       _isSubmitting = true;
@@ -271,7 +268,7 @@ class _GuestbookPageState extends State<GuestbookPage> {
 
     try {
       final messageId = await GuestbookService.submitGuestbookMessage(
-        content: controller.text,
+        content: draftContent,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -289,7 +286,6 @@ class _GuestbookPageState extends State<GuestbookPage> {
         SnackBar(content: Text(e.toString())),
       );
     } finally {
-      controller.dispose();
       if (mounted) {
         setState(() {
           _isSubmitting = false;
