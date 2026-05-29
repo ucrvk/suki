@@ -23,6 +23,14 @@ class MaidCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final signatureColor = isDark ? const Color(0xFFFF8BC8) : const Color(0xFFFF4FA5);
+    final tagBg = isDark ? const Color(0xFF3A2A35) : const Color(0xFFFFEAF4);
+    final tagBorder = isDark ? const Color(0xFF7C3F64) : const Color(0xFFFF8CC3);
+    final tagText = isDark ? const Color(0xFFFFAAD6) : const Color(0xFFD31F7C);
+
     final name = (maid['name'] ?? '未命名').toString();
     final image = (maid['image'] ?? '').toString();
     final signature = (maid['signature'] ?? '').toString();
@@ -32,7 +40,7 @@ class MaidCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(24),
       ),
       clipBehavior: Clip.antiAlias,
@@ -79,11 +87,11 @@ class MaidCard extends StatelessWidget {
                         name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 20,
                           height: 1.1,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFF3A3250),
+                          color: titleColor,
                         ),
                       ),
                     ),
@@ -105,8 +113,8 @@ class MaidCard extends StatelessWidget {
                   signature.isEmpty ? '这位女仆还没有签名~' : signature,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFFFF4FA5),
+                  style: TextStyle(
+                    color: signatureColor,
                     fontSize: 13,
                     fontStyle: FontStyle.italic,
                   ),
@@ -122,14 +130,14 @@ class MaidCard extends StatelessWidget {
                       itemBuilder: (context, index) => Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFEAF4),
-                          border: Border.all(color: const Color(0xFFFF8CC3)),
+                          color: tagBg,
+                          border: Border.all(color: tagBorder),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           tags[index],
-                          style: const TextStyle(
-                            color: Color(0xFFD31F7C),
+                          style: TextStyle(
+                            color: tagText,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -154,7 +162,7 @@ class MaidCard extends StatelessWidget {
     required MaidStatus status,
   }) {
     final enabled = canBook && !submitting;
-    final label = canBook ? '预约' : (status == MaidStatus.full ? '预约已满' : '暂时不营业');
+    final label = canBook ? '预约' : (status == MaidStatus.full ? '预约已满' : '今天不营业');
 
     final bg = enabled ? const Color(0xFFFF6FB5) : const Color(0xFFD5CCD9);
     return SizedBox(

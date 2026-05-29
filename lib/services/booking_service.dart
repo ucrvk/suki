@@ -1,12 +1,9 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+﻿import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'supabase_service.dart';
 
 class BookingService {
   BookingService._();
-
-  static const String slotA = '21.30-22.20';
-  static const String slotB = '22.30-23.30';
 
   static String _formatZhCnNow() {
     final now = DateTime.now();

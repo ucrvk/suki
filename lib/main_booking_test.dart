@@ -6,12 +6,13 @@ import 'services/supabase_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final userAgent = await SupabaseService.buildUserAgent();
   await Supabase.initialize(
     url: SupabaseService.supabaseUrl,
     anonKey: SupabaseService.supabaseAnonKey,
     headers: {
       'apikey': SupabaseService.supabaseAnonKey,
-      'User-Agent': SupabaseService.fixedUserAgent,
+      'User-Agent': userAgent,
     },
   );
   runApp(const BookingTestApp());

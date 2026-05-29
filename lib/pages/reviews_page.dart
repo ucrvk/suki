@@ -235,6 +235,9 @@ class _ReviewsPageState extends State<ReviewsPage> {
   }
 
   Widget _buildReviewLine(ReviewItem review, String comment) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? const Color(0xFFEDE5F3) : const Color(0xFF5D556A);
+    final secondaryText = isDark ? const Color(0xFFB6AABF) : const Color(0xFF8B8399);
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -243,8 +246,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
           Expanded(
             child: Text(
               '$comment —— ${review.guestUsername}',
-              style: const TextStyle(
-                color: Color(0xFF5D556A),
+              style: TextStyle(
+                color: primaryText,
                 fontSize: 15,
                 height: 1.25,
               ),
@@ -253,7 +256,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
           const SizedBox(width: 8),
           Text(
             _formatTime(review.createdAt),
-            style: const TextStyle(fontSize: 12, color: Color(0xFF8B8399)),
+            style: TextStyle(fontSize: 12, color: secondaryText),
           ),
           if (review.liked) ...[
             const SizedBox(width: 8),
@@ -269,6 +272,12 @@ class _ReviewsPageState extends State<ReviewsPage> {
   }
 
   Widget _buildGroupCard(MaidReviewGroup group) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final metaColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7C748A);
+    final emptyColor = isDark ? const Color(0xFF9A8FA4) : const Color(0xFF8B8399);
+    final imageBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFECDCF2);
     final reviewLines = <Widget>[];
     for (final review in group.reviews) {
       for (final comment in review.comments) {
@@ -279,7 +288,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(16),
       ),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -292,7 +301,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
               width: double.infinity,
               margin: const EdgeInsets.only(bottom: 10),
               decoration: BoxDecoration(
-                color: const Color(0xFFECDCF2),
+                color: imageBg,
                 borderRadius: BorderRadius.circular(12),
               ),
               clipBehavior: Clip.antiAlias,
@@ -322,16 +331,16 @@ class _ReviewsPageState extends State<ReviewsPage> {
               Expanded(
                 child: Text(
                   group.maidName,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF3A3250),
+                    color: titleColor,
                     fontSize: 18,
                   ),
                 ),
               ),
               RichText(
                 text: TextSpan(
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF7C748A)),
+                  style: TextStyle(fontSize: 13, color: metaColor),
                   children: [
                     const TextSpan(text: '点赞 '),
                     TextSpan(
@@ -350,7 +359,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
           ),
           const SizedBox(height: 10),
           if (reviewLines.isEmpty)
-            const Text('暂无可展示评论', style: TextStyle(color: Color(0xFF8B8399)))
+            Text('暂无可展示评论', style: TextStyle(color: emptyColor))
           else
             ...reviewLines,
         ],

@@ -14,15 +14,16 @@ class MainAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return AppBar(
       elevation: 0,
-      backgroundColor: const Color(0xFFF3EFF5),
+      backgroundColor: scheme.surface,
       centerTitle: centerTitle,
       title: DefaultTextStyle.merge(
-        style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF3A3250)),
+        style: TextStyle(fontWeight: FontWeight.w700, color: scheme.onSurface),
         child: title,
       ),
-      foregroundColor: const Color(0xFF3A3250),
+      foregroundColor: scheme.onSurface,
       actions: actions,
     );
   }

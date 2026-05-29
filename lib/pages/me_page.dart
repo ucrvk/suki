@@ -252,10 +252,17 @@ class _MePageState extends State<MePage> {
   }
 
   Widget _buildAccountSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
+    final avatarBg = isDark ? const Color(0xFF3A2A35) : const Color(0xFFFFEAF4);
+    final avatarFg = isDark ? const Color(0xFFFF8BC8) : const Color(0xFFFF5DAF);
+
     if (!_isLoggedIn) {
       return Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: cardBg,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Column(children: [
@@ -282,37 +289,37 @@ class _MePageState extends State<MePage> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
         children: [
           ListTile(
-            leading: const CircleAvatar(
-              backgroundColor: Color(0xFFFFEAF4),
-              child: Icon(Icons.person, color: Color(0xFFFF5DAF)),
+            leading: CircleAvatar(
+              backgroundColor: avatarBg,
+              child: Icon(Icons.person, color: avatarFg),
             ),
             title: Text(
               _displayName(),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250)),
+              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
             ),
             subtitle: Text(
               _email ?? '',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Color(0xFF7A7188)),
+              style: TextStyle(color: subColor),
             ),
           ),
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.settings_outlined),
-            title: const Text(
+            title: Text(
               '账户设置',
-              style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF3A3250)),
+              style: TextStyle(fontWeight: FontWeight.w700, color: titleColor),
             ),
-            trailing: const Icon(Icons.chevron_right, color: Color(0xFF7A7188)),
+            trailing: Icon(Icons.chevron_right, color: subColor),
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
@@ -325,27 +332,37 @@ class _MePageState extends State<MePage> {
   }
 
   Widget _buildNoticeSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
+
     final text = (_announcement ?? '').trim();
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(20),
       ),
       child: ListTile(
         leading: const Icon(Icons.campaign_outlined),
-        title: const Text('公告', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250))),
+        title: Text('公告', style: TextStyle(fontWeight: FontWeight.w800, color: titleColor)),
         subtitle: Text(
           text.isEmpty ? '暂无公告' : text,
-          style: const TextStyle(color: Color(0xFF7A7188)),
+          style: TextStyle(color: subColor),
         ),
       ),
     );
   }
 
   Widget _buildMetaSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -353,20 +370,20 @@ class _MePageState extends State<MePage> {
         children: [
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: const Text('版本号', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250))),
-            subtitle: Text(_appVersion, style: const TextStyle(color: Color(0xFF7A7188))),
+            title: Text('版本号', style: TextStyle(fontWeight: FontWeight.w800, color: titleColor)),
+            subtitle: Text(_appVersion, style: TextStyle(color: subColor)),
           ),
-          const ListTile(
-            leading: Icon(Icons.badge_outlined),
-            title: Text('原版及后端作者：鱼七', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF3A3250))),
-            subtitle: Text('本改版作者：wenwen12305', style: TextStyle(color: Color(0xFF7A7188))),
+          ListTile(
+            leading: const Icon(Icons.badge_outlined),
+            title: Text('原版及后端作者：鱼七', style: TextStyle(fontWeight: FontWeight.w700, color: titleColor)),
+            subtitle: Text('本改版作者：wenwen12305', style: TextStyle(color: subColor)),
           ),
           ListTile(
             leading: const Icon(Icons.open_in_new_outlined),
-            title: const Text('访问项目github', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF3A3250))),
-            subtitle: const Text(
+            title: Text('访问项目github', style: TextStyle(fontWeight: FontWeight.w700, color: titleColor)),
+            subtitle: Text(
               'ucrvk/suki',
-              style: TextStyle(color: Color(0xFF7A7188)),
+              style: TextStyle(color: subColor),
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () async {
@@ -383,8 +400,8 @@ class _MePageState extends State<MePage> {
           ),
           ListTile(
             leading: const Icon(Icons.gavel_outlined),
-            title: const Text('开源使用', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250))),
-            subtitle: const Text('查看开源许可', style: TextStyle(color: Color(0xFF7A7188))),
+            title: Text('开源使用', style: TextStyle(fontWeight: FontWeight.w800, color: titleColor)),
+            subtitle: Text('查看开源许可', style: TextStyle(color: subColor)),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               showLicensePage(

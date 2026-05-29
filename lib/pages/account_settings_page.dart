@@ -174,19 +174,23 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   }
 
   Widget _buildProfileSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const ListTile(
-            leading: Icon(Icons.person_outline),
+          ListTile(
+            leading: const Icon(Icons.person_outline),
             title: Text(
               '个人资料',
-              style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250)),
+              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
             ),
           ),
           if (_profileLoading)
@@ -248,19 +252,23 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   }
 
   Widget _buildPasswordSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const ListTile(
-            leading: Icon(Icons.lock_outline),
+          ListTile(
+            leading: const Icon(Icons.lock_outline),
             title: Text(
               '修改密码',
-              style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF3A3250)),
+              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
             ),
           ),
           Padding(
