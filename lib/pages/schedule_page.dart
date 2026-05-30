@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app_shell.dart';
+import '../services/maid_catalog_cache_service.dart';
 import '../services/schedule_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
@@ -23,6 +24,7 @@ class _SchedulePageState extends State<SchedulePage> {
   ScheduleSnapshot? _schedule;
   User? _currentUser;
   StreamSubscription<AuthState>? _authStateSub;
+  String? _cancelingReservationKey;
   final ScrollController _scrollController = ScrollController();
   late final VoidCallback _tabReselectListener;
 
@@ -218,7 +220,7 @@ class _SchedulePageState extends State<SchedulePage> {
           Text(
             '您的预约',
             style: TextStyle(
-              fontSize: 22,
+              fontSize: 18,
               fontWeight: FontWeight.w800,
               color: titleColor,
             ),
@@ -238,6 +240,62 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
+  Future<void> _cancelMyReservation(ScheduleAppointment selected) async {
+    if (_currentUser == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('确认取消预约'),
+          content: Text(
+            '将取消 ${selected.maidName.isEmpty ? selected.maidVrcid : selected.maidName}（${selected.timeSlot}）的预约，确定吗？',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('返回'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('确认取消'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+
+    final cancelKey = '${selected.maidVrcid}|${selected.timeSlot}';
+    setState(() => _cancelingReservationKey = cancelKey);
+    try {
+      await SupabaseService.client.rpc(
+        'cancel_own_reservation',
+        params: {
+          'p_maid_vrcid': selected.maidVrcid,
+          'p_guest_user_id': _currentUser!.id,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已取消预约')));
+      MaidCatalogCacheService.invalidate();
+      ScheduleCacheService.invalidate();
+      await _loadSchedule(forceRefresh: true);
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) {
+        setState(() => _cancelingReservationKey = null);
+      } else {
+        _cancelingReservationKey = null;
+      }
+    }
+  }
+
   Widget _buildMySlotLine(String slot, ScheduleAppointment? appointment) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final lineBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFFFF3F8);
@@ -248,6 +306,8 @@ class _SchedulePageState extends State<SchedulePage> {
         ? (appointment.maidName.isEmpty ? '未命名女仆' : appointment.maidName)
         : '未预约';
     final withFriend = hasBooking && appointment.withFriend;
+    final cancelKey = hasBooking ? '${appointment.maidVrcid}|${appointment.timeSlot}' : '';
+    final isCanceling = hasBooking && _cancelingReservationKey == cancelKey;
 
     return Container(
       width: double.infinity,
@@ -262,7 +322,7 @@ class _SchedulePageState extends State<SchedulePage> {
             child: Text(
               slot,
               style: const TextStyle(
-                fontSize: 18,
+                fontSize: 15,
                 fontWeight: FontWeight.w800,
                 color: _pink,
               ),
@@ -280,7 +340,7 @@ class _SchedulePageState extends State<SchedulePage> {
               Text(
                 maidName,
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: hasBooking ? normalText : mutedText,
                 ),
@@ -290,10 +350,32 @@ class _SchedulePageState extends State<SchedulePage> {
                 const Text(
                   '+1',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.w800,
                     color: _pink,
                   ),
+                ),
+              ],
+              if (hasBooking) ...[
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: isCanceling ? null : () => _cancelMyReservation(appointment),
+                  style: TextButton.styleFrom(
+                    foregroundColor: _pink,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    minimumSize: const Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: isCanceling
+                      ? const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text(
+                          '取消',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                        ),
                 ),
               ],
             ],
@@ -339,9 +421,9 @@ class _SchedulePageState extends State<SchedulePage> {
           Row(
             children: [
               Text(
-                '🐱 ${maid.maidName.isEmpty ? maid.name : maid.maidName}',
+                ' ${maid.maidName.isEmpty ? maid.name : maid.maidName}',
                 style: TextStyle(
-                  fontSize: 22,
+                  fontSize: 18,
                   fontWeight: FontWeight.w800,
                   color: titleColor,
                 ),
@@ -350,7 +432,7 @@ class _SchedulePageState extends State<SchedulePage> {
               Text(
                 '预约 $bookedCount 人',
                 style: const TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: _pink,
                 ),
@@ -367,7 +449,7 @@ class _SchedulePageState extends State<SchedulePage> {
                     '预约已满',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 14,
+                      fontSize: 12,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -420,7 +502,7 @@ class _SchedulePageState extends State<SchedulePage> {
             child: Text(
               slot,
               style: const TextStyle(
-                fontSize: 18,
+                fontSize: 15,
                 fontWeight: FontWeight.w800,
                 color: _pink,
               ),
@@ -438,7 +520,7 @@ class _SchedulePageState extends State<SchedulePage> {
               Text(
                 guestText,
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: booked ? normalText : mutedText,
                 ),
@@ -448,7 +530,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 const Text(
                   '+1',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.w800,
                     color: _pink,
                   ),

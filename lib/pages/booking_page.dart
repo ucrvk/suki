@@ -516,7 +516,7 @@ class _BookingPageState extends State<BookingPage> {
                         controller: _searchController,
                         onChanged: (_) => setState(() {}),
                         decoration: InputDecoration(
-                          hintText: '搜索女仆（昵称/VRCID/标签）',
+                          hintText: '搜索女仆（昵称/介绍/标签）',
                           prefixIcon: const Icon(Icons.search),
                           suffixIcon: _searchController.text.isEmpty
                               ? null
