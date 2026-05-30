@@ -40,8 +40,9 @@ jobs:
         shell: bash
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          TAG=$(echo "$VERSION" | cut -d'+' -f1)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Decode keystore
         shell: bash
@@ -61,20 +62,21 @@ jobs:
       - name: Build signed APK (arm64)
         run: flutter build apk --release --target-platform android-arm64
 
-      - name: Find previous beta tag
+      - name: Find previous tag
         id: prev_tag
         shell: bash
         run: |
           git fetch --tags
-          PREV_TAG=$(git tag --sort=-version:refname | grep -vx "${{ steps.version.outputs.tag }}" | head -n 1 || true)
+          PREV_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | grep -vx "${{ steps.version.outputs.tag }}" | head -n 1 || true)
           echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Rename APK
         shell: bash
         run: |
           VERSION=${{ steps.version.outputs.version }}
+          TAG=$(echo "$VERSION" | cut -d'+' -f1)
           mv build/app/outputs/flutter-apk/app-release.apk \
-            build/app/outputs/flutter-apk/vrc_monitor-arm64-v8a-$VERSION.apk
+            build/app/outputs/flutter-apk/suki_v${TAG}_arm64.apk
 
       - name: Create release notes
         shell: bash
@@ -91,13 +93,15 @@ jobs:
           EOF
           fi
 
-      - name: Create GitHub pre-release
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            build/app/outputs/flutter-apk/vrc_monitor-arm64-v8a-${{ steps.version.outputs.version }}.apk \
+          VERSION=${{ steps.version.outputs.version }}
+          TAG=$(echo "$VERSION" | cut -d'+' -f1)
+          gh release create "v${TAG}" \
+            build/app/outputs/flutter-apk/suki_v${TAG}_arm64.apk \
           --target main \
-          --title "${{ steps.version.outputs.tag }}" \
+          --title "v${TAG}" \
           --notes-file release_notes.md \
-          --prerelease
+          --latest
