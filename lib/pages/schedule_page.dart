@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../app_shell.dart';
 import '../services/schedule_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
@@ -22,6 +23,8 @@ class _SchedulePageState extends State<SchedulePage> {
   ScheduleSnapshot? _schedule;
   User? _currentUser;
   StreamSubscription<AuthState>? _authStateSub;
+  final ScrollController _scrollController = ScrollController();
+  late final VoidCallback _tabReselectListener;
 
   @override
   void initState() {
@@ -33,13 +36,35 @@ class _SchedulePageState extends State<SchedulePage> {
         _currentUser = event.session?.user;
       });
     });
+    _tabReselectListener = () {
+      final event = AppShell.tabReselectNotifier.value;
+      if (event == null || event.index != 1) return;
+      _handleTabReselect(event.action);
+    };
+    AppShell.tabReselectNotifier.addListener(_tabReselectListener);
     _loadSchedule();
   }
 
   @override
   void dispose() {
+    AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
     _authStateSub?.cancel();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleTabReselect(TabReselectAction action) async {
+    if (action == TabReselectAction.scrollToTop) {
+      if (_scrollController.hasClients) {
+        await _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return;
+    }
+    await _loadSchedule(forceRefresh: true);
   }
 
   Future<void> _loadSchedule({bool forceRefresh = false}) async {
@@ -111,6 +136,7 @@ class _SchedulePageState extends State<SchedulePage> {
       return RefreshIndicator(
         onRefresh: () => _loadSchedule(forceRefresh: true),
         child: ListView(
+          controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           children: const [
             SizedBox(height: 220),
@@ -135,6 +161,7 @@ class _SchedulePageState extends State<SchedulePage> {
           final itemWidth = (constraints.maxWidth - spacing * (cols - 1) - 32) / cols;
 
           return ListView(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
             children: [

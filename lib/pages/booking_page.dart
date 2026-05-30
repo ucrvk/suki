@@ -55,8 +55,10 @@ class _BookingPageState extends State<BookingPage> {
   Set<String> _favoriteIds = <String>{};
   final Set<String> _submittingKeys = <String>{};
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   User? _currentUser;
   StreamSubscription<AuthState>? _authStateSub;
+  late final VoidCallback _tabReselectListener;
 
   @override
   void initState() {
@@ -68,14 +70,39 @@ class _BookingPageState extends State<BookingPage> {
         _currentUser = event.session?.user;
       });
     });
+    _tabReselectListener = () {
+      final event = AppShell.tabReselectNotifier.value;
+      if (event == null || event.index != 0) return;
+      _handleTabReselect(event.action);
+    };
+    AppShell.tabReselectNotifier.addListener(_tabReselectListener);
     _initPage();
   }
 
   @override
   void dispose() {
+    AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
     _authStateSub?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleTabReselect(TabReselectAction action) async {
+    if (!mounted) return;
+    if (action == TabReselectAction.scrollToTop) {
+      if (_scrollController.hasClients) {
+        await _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return;
+    }
+    MaidCatalogCacheService.invalidate();
+    ScheduleCacheService.invalidate();
+    await _fetchMaids(forceRefresh: true);
   }
 
   Future<void> _initPage() async {
@@ -476,6 +503,7 @@ class _BookingPageState extends State<BookingPage> {
           }
 
           return CustomScrollView(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(

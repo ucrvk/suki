@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../app_shell.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
@@ -75,11 +76,40 @@ class _ReviewsPageState extends State<ReviewsPage> {
   List<MaidOption> _maidOptions = const [];
   List<String> _presetComments = const [];
   int? _maxReviewsPerUser;
+  final ScrollController _scrollController = ScrollController();
+  late final VoidCallback _tabReselectListener;
 
   @override
   void initState() {
     super.initState();
+    _tabReselectListener = () {
+      final event = AppShell.tabReselectNotifier.value;
+      if (event == null || event.index != 2) return;
+      _handleTabReselect(event.action);
+    };
+    AppShell.tabReselectNotifier.addListener(_tabReselectListener);
     _fetchReviews();
+  }
+
+  @override
+  void dispose() {
+    AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleTabReselect(TabReselectAction action) async {
+    if (action == TabReselectAction.scrollToTop) {
+      if (_scrollController.hasClients) {
+        await _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return;
+    }
+    await _fetchReviews(forceRefresh: true);
   }
 
   Future<void> _fetchReviews({bool forceRefresh = false}) async {
@@ -566,6 +596,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
           final count = _columnCount(constraints.maxWidth);
 
           return MasonryGridView.builder(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
             gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(

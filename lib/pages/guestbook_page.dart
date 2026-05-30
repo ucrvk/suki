@@ -3,6 +3,7 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../app_shell.dart';
 import '../services/guestbook_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
@@ -23,11 +24,40 @@ class _GuestbookPageState extends State<GuestbookPage> {
   bool _isSubmitting = false;
   bool _hasMore = true;
   String? _error;
+  final ScrollController _scrollController = ScrollController();
+  late final VoidCallback _tabReselectListener;
 
   @override
   void initState() {
     super.initState();
+    _tabReselectListener = () {
+      final event = AppShell.tabReselectNotifier.value;
+      if (event == null || event.index != 3) return;
+      _handleTabReselect(event.action);
+    };
+    AppShell.tabReselectNotifier.addListener(_tabReselectListener);
     _loadEntries(isRefresh: true);
+  }
+
+  @override
+  void dispose() {
+    AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleTabReselect(TabReselectAction action) async {
+    if (action == TabReselectAction.scrollToTop) {
+      if (_scrollController.hasClients) {
+        await _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return;
+    }
+    await _loadEntries(isRefresh: true);
   }
 
   Future<void> _loadEntries({bool isRefresh = false}) async {
@@ -311,6 +341,7 @@ class _GuestbookPageState extends State<GuestbookPage> {
           final itemCount = _entries.length + (hasTailTile ? 1 : 0);
 
           return MasonryGridView.builder(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
             gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
