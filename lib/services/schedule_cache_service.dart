@@ -56,16 +56,17 @@ class ScheduleCacheService {
   static Future<ScheduleSnapshot> getTodaySchedule({bool forceRefresh = false}) async {
     if (!forceRefresh && _snapshot != null) return _snapshot!;
 
-    final date = _todayInUtc();
+    final today = _todayInUtc();
     final rows = await SupabaseService.client
         .from('suki_schedule')
         .select('*')
-        .eq('date', date)
+        .lte('date', today)
+        .order('date', ascending: false)
         .limit(1);
 
     if (rows.isEmpty) {
       _snapshot = ScheduleSnapshot(
-        date: date,
+        date: today,
         timeSlots: const [],
         maids: const [],
         appointments: const [],
@@ -75,6 +76,9 @@ class ScheduleCacheService {
     }
 
     final first = Map<String, dynamic>.from(rows.first);
+    final scheduleDate = (first['date'] ?? today).toString().trim().isEmpty
+        ? today
+        : (first['date'] ?? today).toString().trim();
 
     final timeSlots = ((first['time_slots'] as List?) ?? const [])
         .map((e) => e.toString().trim())
@@ -111,7 +115,7 @@ class ScheduleCacheService {
         .toList();
 
     _snapshot = ScheduleSnapshot(
-      date: date,
+      date: scheduleDate,
       timeSlots: timeSlots,
       maids: maids,
       appointments: appointments,

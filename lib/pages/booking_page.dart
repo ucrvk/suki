@@ -7,7 +7,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app_shell.dart';
 import '../services/booking_service.dart';
 import '../services/maid_catalog_cache_service.dart';
-import '../services/schedule_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
 import '../widgets/maid_card.dart';
@@ -48,10 +47,8 @@ class _BookingPageState extends State<BookingPage> {
   List<Map<String, dynamic>> _maids = const [];
   List<Map<String, dynamic>> _reservations = const [];
   Set<String> _hiddenMaidVrcids = const <String>{};
-  Set<String> _scheduledMaidVrcids = const <String>{};
   List<String> _timeSlots = const [];
   Set<String> _bookedSlotKeys = const <String>{};
-  List<ScheduleAppointment> _scheduleAppointments = const [];
   Set<String> _favoriteIds = <String>{};
   final Set<String> _submittingKeys = <String>{};
   final TextEditingController _searchController = TextEditingController();
@@ -101,7 +98,6 @@ class _BookingPageState extends State<BookingPage> {
       return;
     }
     MaidCatalogCacheService.invalidate();
-    ScheduleCacheService.invalidate();
     await _fetchMaids(forceRefresh: true);
   }
 
@@ -143,19 +139,17 @@ class _BookingPageState extends State<BookingPage> {
 
     try {
       final snapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
-      final schedule = await ScheduleCacheService.getTodaySchedule(forceRefresh: forceRefresh);
 
       setState(() {
         _maids = snapshot.maids;
         _reservations = snapshot.reservations;
         _bookingEnabled = snapshot.bookingEnabled;
         _hiddenMaidVrcids = snapshot.hiddenMaidVrcids;
-        _scheduledMaidVrcids = schedule.maids.map((m) => m.vrcid).toSet();
-        _timeSlots = schedule.timeSlots;
-        _scheduleAppointments = schedule.appointments;
-        _bookedSlotKeys = schedule.appointments
-            .where((a) => a.maidVrcid.isNotEmpty && a.timeSlot.isNotEmpty)
-            .map((a) => '${a.maidVrcid}|${a.timeSlot}')
+        _timeSlots = snapshot.timeSlots;
+        _bookedSlotKeys = snapshot.reservations
+            .map((e) => Map<String, dynamic>.from(e))
+            .where((a) => (a['maidVrcid'] ?? '').toString().trim().isNotEmpty && (a['timeSlot'] ?? '').toString().trim().isNotEmpty)
+            .map((a) => '${(a['maidVrcid'] ?? '').toString().trim()}|${(a['timeSlot'] ?? '').toString().trim()}')
             .toSet();
         _loading = false;
       });
@@ -191,10 +185,6 @@ class _BookingPageState extends State<BookingPage> {
 
   MaidStatus _statusForMaid(Map<String, dynamic> maid) {
     if (widget.forceAllBookableForTest) return MaidStatus.available;
-    final vrcid = (maid['vrcid'] ?? '').toString().trim();
-    if (vrcid.isNotEmpty && _scheduledMaidVrcids.isNotEmpty && !_scheduledMaidVrcids.contains(vrcid)) {
-      return MaidStatus.closed;
-    }
     final disabled = maid['disabled'] == true;
     if (!_bookingEnabled || disabled || _timeSlots.isEmpty) return MaidStatus.closed;
     if (_reservationCountForMaid(maid) >= _fullThreshold) return MaidStatus.full;
@@ -278,7 +268,7 @@ class _BookingPageState extends State<BookingPage> {
           content: const Text('请先登录后再预约'),
           action: SnackBarAction(
             label: '去登录',
-            onPressed: () => AppShell.switchToTab(4),
+            onPressed: () => AppShell.switchToTab(3),
           ),
         ),
       );
@@ -399,7 +389,6 @@ class _BookingPageState extends State<BookingPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('预约成功')));
       MaidCatalogCacheService.invalidate();
-      ScheduleCacheService.invalidate();
       await _fetchMaids(forceRefresh: true);
     } catch (e) {
       if (!mounted) return;
@@ -418,9 +407,10 @@ class _BookingPageState extends State<BookingPage> {
 
   Set<String> _bookedSlotsByUserId(String userId) {
     if (userId.isEmpty) return const <String>{};
-    return _scheduleAppointments
-        .where((a) => a.guestUserId == userId && a.timeSlot.isNotEmpty)
-        .map((a) => a.timeSlot)
+    return _reservations
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((a) => (a['guestUserId'] ?? '').toString().trim() == userId && (a['timeSlot'] ?? '').toString().trim().isNotEmpty)
+        .map((a) => (a['timeSlot'] ?? '').toString().trim())
         .toSet();
   }
 
@@ -485,7 +475,6 @@ class _BookingPageState extends State<BookingPage> {
     return RefreshIndicator(
       onRefresh: () async {
         MaidCatalogCacheService.invalidate();
-        ScheduleCacheService.invalidate();
         await _fetchMaids(forceRefresh: true);
       },
       child: LayoutBuilder(
