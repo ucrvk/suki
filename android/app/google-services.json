@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1016491984372",
+    "project_id": "suki-get",
+    "storage_bucket": "suki-get.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1016491984372:android:d7201cb319bc11de5665a1",
+        "android_client_info": {
+          "package_name": "top.wenwen12305.suki"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBWqbSY6YrHd1jTUSa7sgVNAfyT4utWRNQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

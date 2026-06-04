@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/maid_catalog_cache_service.dart';
+import '../services/fcm_service.dart';
 import '../services/supabase_service.dart';
 import 'account_settings_page.dart';
 import '../widgets/main_app_bar.dart';
@@ -95,9 +96,25 @@ class _MePageState extends State<MePage> {
       _email = email;
       _username = username;
     });
+    final normalizedEmail = (email ?? '').trim();
+    if (normalizedEmail.isNotEmpty) {
+      unawaited(FcmService.registerForEmail(normalizedEmail));
+    }
   }
 
   Future<void> _logout() async {
+    final email = (_email ?? '').trim();
+    if (email.isNotEmpty) {
+      try {
+        await FcmService.unregisterByEmail(email);
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('通知解绑失败，已继续退出登录')),
+          );
+        }
+      }
+    }
     await SupabaseService.client.auth.signOut();
     _applySession(null);
   }
