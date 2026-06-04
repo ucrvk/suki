@@ -9,13 +9,15 @@ import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
 
 class GuestbookPage extends StatefulWidget {
-  const GuestbookPage({super.key});
+  const GuestbookPage({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
-  State<GuestbookPage> createState() => _GuestbookPageState();
+  State<GuestbookPage> createState() => GuestbookPageState();
 }
 
-class _GuestbookPageState extends State<GuestbookPage> {
+class GuestbookPageState extends State<GuestbookPage> {
   static const int _pageSize = 20;
 
   final List<GuestbookEntry> _entries = [];
@@ -35,16 +37,34 @@ class _GuestbookPageState extends State<GuestbookPage> {
       if (event == null || event.index != 3) return;
       _handleTabReselect(event.action);
     };
-    AppShell.tabReselectNotifier.addListener(_tabReselectListener);
+    if (!widget.embedded) {
+      AppShell.tabReselectNotifier.addListener(_tabReselectListener);
+    }
     _loadEntries(isRefresh: true);
   }
 
   @override
   void dispose() {
-    AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
+    if (!widget.embedded) {
+      AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
+    }
     _scrollController.dispose();
     super.dispose();
   }
+
+  Future<void> scrollToTop() async {
+    if (_scrollController.hasClients) {
+      await _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  Future<void> refreshData() => _loadEntries(isRefresh: true);
+
+  Future<void> showSubmitSheet() => _showSubmitMessageSheet();
 
   Future<void> _handleTabReselect(TabReselectAction action) async {
     if (action == TabReselectAction.scrollToTop) {
@@ -206,6 +226,9 @@ class _GuestbookPageState extends State<GuestbookPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return _buildBody();
+    }
     return Scaffold(
       appBar: MainAppBar(
         title: Text('留言 (${_entries.length})'),

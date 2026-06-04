@@ -6,6 +6,7 @@ class MaidCatalogSnapshot {
   const MaidCatalogSnapshot({
     required this.maids,
     required this.reservations,
+    required this.timeSlots,
     required this.bookingEnabled,
     required this.announcement,
     required this.maidByVrcid,
@@ -16,6 +17,7 @@ class MaidCatalogSnapshot {
 
   final List<Map<String, dynamic>> maids;
   final List<Map<String, dynamic>> reservations;
+  final List<String> timeSlots;
   final bool bookingEnabled;
   final String announcement;
   final Map<String, Map<String, dynamic>> maidByVrcid;
@@ -36,19 +38,38 @@ class MaidCatalogCacheService {
 
     await MaidImageManifestService.fetchManifest(forceRefresh: forceRefresh);
 
-    final decoded = await SupabaseService.client.from('suki_booking').select('*').limit(1);
-    if (decoded.isEmpty) {
+    final results = await Future.wait([
+      SupabaseService.client.from('suki_booking').select('maids').limit(1),
+      SupabaseService.client.from('suki_booking').select('reservations').limit(1),
+      SupabaseService.client.from('suki_booking').select('time_slots').limit(1),
+      SupabaseService.client.from('suki_booking').select('booking_enabled,announcement').limit(1),
+    ]);
+
+    final maidsRows = results[0];
+    final reservationsRows = results[1];
+    final timeSlotsRows = results[2];
+    final metaRows = results[3];
+
+    if (maidsRows.isEmpty || reservationsRows.isEmpty || timeSlotsRows.isEmpty || metaRows.isEmpty) {
       throw Exception('返回数据为空');
     }
 
-    final first = Map<String, dynamic>.from(decoded.first);
-    final maids = ((first['maids'] as List?) ?? const [])
+    final maidsFirst = Map<String, dynamic>.from(maidsRows.first);
+    final reservationsFirst = Map<String, dynamic>.from(reservationsRows.first);
+    final timeSlotsFirst = Map<String, dynamic>.from(timeSlotsRows.first);
+    final metaFirst = Map<String, dynamic>.from(metaRows.first);
+
+    final maids = ((maidsFirst['maids'] as List?) ?? const [])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
-    final reservations = ((first['reservations'] as List?) ?? const [])
+    final reservations = ((reservationsFirst['reservations'] as List?) ?? const [])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final timeSlots = ((timeSlotsFirst['time_slots'] as List?) ?? const [])
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
         .toList();
 
     final maidByVrcid = <String, Map<String, dynamic>>{};
@@ -71,8 +92,9 @@ class MaidCatalogCacheService {
     _snapshot = MaidCatalogSnapshot(
       maids: maids,
       reservations: reservations,
-      bookingEnabled: first['booking_enabled'] == true,
-      announcement: (first['announcement'] ?? '').toString().trim(),
+      timeSlots: timeSlots,
+      bookingEnabled: metaFirst['booking_enabled'] == true,
+      announcement: (metaFirst['announcement'] ?? '').toString().trim(),
       maidByVrcid: maidByVrcid,
       maidImageByVrcid: maidImageByVrcid,
       hiddenMaidVrcids: hiddenMaidVrcids,

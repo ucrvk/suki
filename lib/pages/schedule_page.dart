@@ -5,9 +5,28 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app_shell.dart';
 import '../services/maid_catalog_cache_service.dart';
-import '../services/schedule_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
+
+class _ReservationEntry {
+  const _ReservationEntry({
+    required this.guest,
+    required this.guestUserId,
+    required this.maidName,
+    required this.maidVrcid,
+    required this.timeSlot,
+    required this.withFriend,
+    required this.createdAt,
+  });
+
+  final String guest;
+  final String guestUserId;
+  final String maidName;
+  final String maidVrcid;
+  final String timeSlot;
+  final bool withFriend;
+  final int createdAt;
+}
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
@@ -21,7 +40,7 @@ class _SchedulePageState extends State<SchedulePage> {
 
   bool _loading = true;
   String? _error;
-  ScheduleSnapshot? _schedule;
+  MaidCatalogSnapshot? _snapshot;
   User? _currentUser;
   StreamSubscription<AuthState>? _authStateSub;
   String? _cancelingReservationKey;
@@ -44,7 +63,7 @@ class _SchedulePageState extends State<SchedulePage> {
       _handleTabReselect(event.action);
     };
     AppShell.tabReselectNotifier.addListener(_tabReselectListener);
-    _loadSchedule();
+    _loadData();
   }
 
   @override
@@ -66,22 +85,20 @@ class _SchedulePageState extends State<SchedulePage> {
       }
       return;
     }
-    await _loadSchedule(forceRefresh: true);
+    await _loadData(forceRefresh: true);
   }
 
-  Future<void> _loadSchedule({bool forceRefresh = false}) async {
+  Future<void> _loadData({bool forceRefresh = false}) async {
     setState(() {
       _loading = true;
       _error = null;
     });
 
     try {
-      final schedule = await ScheduleCacheService.getTodaySchedule(
-        forceRefresh: forceRefresh,
-      );
+      final snapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
       if (!mounted) return;
       setState(() {
-        _schedule = schedule;
+        _snapshot = snapshot;
         _loading = false;
       });
     } catch (e) {
@@ -101,10 +118,27 @@ class _SchedulePageState extends State<SchedulePage> {
     return 1;
   }
 
+  List<_ReservationEntry> _parseReservations(List<Map<String, dynamic>> rows) {
+    return rows
+        .map(
+          (a) => _ReservationEntry(
+            guest: (a['guestUsername'] ?? '').toString().trim(),
+            guestUserId: (a['guestUserId'] ?? '').toString().trim(),
+            maidName: (a['maidName'] ?? '').toString().trim(),
+            maidVrcid: (a['maidVrcid'] ?? '').toString().trim(),
+            timeSlot: (a['timeSlot'] ?? '').toString().trim(),
+            withFriend: a['withFriend'] == true,
+            createdAt: a['createdAt'] is num ? (a['createdAt'] as num).toInt() : 0,
+          ),
+        )
+        .where((e) => e.maidVrcid.isNotEmpty)
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: MainAppBar(title: Text('排班 ${_schedule?.date ?? ''}')),
+      appBar: const MainAppBar(title: Text('排班')),
       body: _buildBody(),
     );
   }
@@ -124,7 +158,7 @@ class _SchedulePageState extends State<SchedulePage> {
               Text('请求失败: $_error', textAlign: TextAlign.center),
               const SizedBox(height: 12),
               FilledButton(
-                onPressed: () => _loadSchedule(forceRefresh: true),
+                onPressed: () => _loadData(forceRefresh: true),
                 child: const Text('重试'),
               ),
             ],
@@ -133,29 +167,34 @@ class _SchedulePageState extends State<SchedulePage> {
       );
     }
 
-    final schedule = _schedule;
-    if (schedule == null || schedule.maids.isEmpty) {
+    final snapshot = _snapshot;
+    if (snapshot == null || snapshot.maids.isEmpty) {
       return RefreshIndicator(
-        onRefresh: () => _loadSchedule(forceRefresh: true),
+        onRefresh: () => _loadData(forceRefresh: true),
         child: ListView(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           children: const [
             SizedBox(height: 220),
-            Center(child: Text('今日暂无排班')),
+            Center(child: Text('暂无女仆数据')),
           ],
         ),
       );
     }
 
-    final appointmentsByMaid = <String, List<ScheduleAppointment>>{};
-    for (final a in schedule.appointments) {
-      if (a.maidVrcid.isEmpty) continue;
-      appointmentsByMaid.putIfAbsent(a.maidVrcid, () => <ScheduleAppointment>[]).add(a);
+    final visibleMaids = snapshot.maids.where((m) {
+      final vrcid = (m['vrcid'] ?? '').toString().trim();
+      return vrcid.isNotEmpty && !snapshot.hiddenMaidVrcids.contains(vrcid);
+    }).toList();
+    final reservations = _parseReservations(snapshot.reservations);
+
+    final appointmentsByMaid = <String, List<_ReservationEntry>>{};
+    for (final a in reservations) {
+      appointmentsByMaid.putIfAbsent(a.maidVrcid, () => <_ReservationEntry>[]).add(a);
     }
 
     return RefreshIndicator(
-      onRefresh: () => _loadSchedule(forceRefresh: true),
+      onRefresh: () => _loadData(forceRefresh: true),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final cols = _columnCount(constraints.maxWidth);
@@ -168,20 +207,20 @@ class _SchedulePageState extends State<SchedulePage> {
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
             children: [
               if (_currentUser != null) ...[
-                _buildMyAppointmentsCard(schedule),
+                _buildMyAppointmentsCard(snapshot.timeSlots, reservations),
                 const SizedBox(height: 14),
               ],
               Wrap(
                 spacing: spacing,
                 runSpacing: spacing,
                 children: [
-                  for (final maid in schedule.maids)
+                  for (final maid in visibleMaids)
                     SizedBox(
                       width: itemWidth,
                       child: _buildMaidCard(
                         maid: maid,
-                        timeSlots: schedule.timeSlots,
-                        appointments: appointmentsByMaid[maid.vrcid] ?? const [],
+                        timeSlots: snapshot.timeSlots,
+                        appointments: appointmentsByMaid[(maid['vrcid'] ?? '').toString().trim()] ?? const [],
                       ),
                     ),
                 ],
@@ -193,17 +232,17 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Widget _buildMyAppointmentsCard(ScheduleSnapshot schedule) {
+  Widget _buildMyAppointmentsCard(List<String> timeSlots, List<_ReservationEntry> reservations) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
     final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF5A5056);
     final mutedColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7D7178);
     final userId = _currentUser?.id ?? '';
-    final myAppointments = schedule.appointments
+    final myAppointments = reservations
         .where((a) => a.guestUserId == userId && a.timeSlot.isNotEmpty)
         .toList();
 
-    final bySlot = <String, ScheduleAppointment>{};
+    final bySlot = <String, _ReservationEntry>{};
     for (final appointment in myAppointments) {
       bySlot[appointment.timeSlot] = appointment;
     }
@@ -228,10 +267,10 @@ class _SchedulePageState extends State<SchedulePage> {
           const SizedBox(height: 10),
           const Divider(height: 1, color: Color(0xFFEFD7E2)),
           const SizedBox(height: 12),
-          if (schedule.timeSlots.isEmpty)
+          if (timeSlots.isEmpty)
             Text('今日未配置时段', style: TextStyle(color: mutedColor))
           else
-            for (final slot in schedule.timeSlots) ...[
+            for (final slot in timeSlots) ...[
               _buildMySlotLine(slot, bySlot[slot]),
               const SizedBox(height: 8),
             ],
@@ -240,7 +279,7 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Future<void> _cancelMyReservation(ScheduleAppointment selected) async {
+  Future<void> _cancelMyReservation(_ReservationEntry selected) async {
     if (_currentUser == null) return;
 
     final confirmed = await showDialog<bool>(
@@ -279,8 +318,7 @@ class _SchedulePageState extends State<SchedulePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已取消预约')));
       MaidCatalogCacheService.invalidate();
-      ScheduleCacheService.invalidate();
-      await _loadSchedule(forceRefresh: true);
+      await _loadData(forceRefresh: true);
     } on PostgrestException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
@@ -296,7 +334,7 @@ class _SchedulePageState extends State<SchedulePage> {
     }
   }
 
-  Widget _buildMySlotLine(String slot, ScheduleAppointment? appointment) {
+  Widget _buildMySlotLine(String slot, _ReservationEntry? appointment) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final lineBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFFFF3F8);
     final normalText = isDark ? const Color(0xFFEDE5F3) : const Color(0xFF5A5056);
@@ -386,20 +424,20 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   Widget _buildMaidCard({
-    required ScheduleMaid maid,
+    required Map<String, dynamic> maid,
     required List<String> timeSlots,
-    required List<ScheduleAppointment> appointments,
+    required List<_ReservationEntry> appointments,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
     final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF5A5056);
     final mutedColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7D7178);
-    final slotToAppointments = <String, List<ScheduleAppointment>>{};
+    final slotToAppointments = <String, List<_ReservationEntry>>{};
     for (final slot in timeSlots) {
-      slotToAppointments[slot] = <ScheduleAppointment>[];
+      slotToAppointments[slot] = <_ReservationEntry>[];
     }
     for (final a in appointments) {
-      slotToAppointments.putIfAbsent(a.timeSlot, () => <ScheduleAppointment>[]).add(a);
+      slotToAppointments.putIfAbsent(a.timeSlot, () => <_ReservationEntry>[]).add(a);
     }
 
     for (final list in slotToAppointments.values) {
@@ -408,6 +446,7 @@ class _SchedulePageState extends State<SchedulePage> {
 
     final bookedCount = slotToAppointments.values.where((list) => list.isNotEmpty).length;
     final isFull = timeSlots.isNotEmpty && bookedCount >= timeSlots.length;
+    final maidName = (maid['name'] ?? '').toString().trim();
 
     return Container(
       decoration: BoxDecoration(
@@ -421,7 +460,7 @@ class _SchedulePageState extends State<SchedulePage> {
           Row(
             children: [
               Text(
-                ' ${maid.maidName.isEmpty ? maid.name : maid.maidName}',
+                ' ${maidName.isEmpty ? '未命名' : maidName}',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
@@ -472,7 +511,7 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Widget _buildSlotLine(String slot, List<ScheduleAppointment> list) {
+  Widget _buildSlotLine(String slot, List<_ReservationEntry> list) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final lineBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFFFF3F8);
     final normalText = isDark ? const Color(0xFFEDE5F3) : const Color(0xFF5A5056);

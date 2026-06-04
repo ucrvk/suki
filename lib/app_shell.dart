@@ -1,9 +1,8 @@
 ﻿import 'package:flutter/material.dart';
 
 import 'pages/booking_page.dart';
-import 'pages/guestbook_page.dart';
+import 'pages/feedback_page.dart';
 import 'pages/me_page.dart';
-import 'pages/reviews_page.dart';
 import 'pages/schedule_page.dart';
 
 enum TabReselectAction { scrollToTop, refresh }
@@ -69,8 +68,7 @@ class _AppShellState extends State<AppShell> {
         children: [
           BookingPage(forceAllBookableForTest: widget.forceAllBookableForTest),
           const SchedulePage(),
-          const ReviewsPage(),
-          const GuestbookPage(),
+          const FeedbackPage(),
           const MePage(),
         ],
       ),
@@ -102,7 +100,6 @@ class _AppShellState extends State<AppShell> {
           NavigationDestination(icon: Icon(Icons.calendar_month), label: '预约'),
           NavigationDestination(icon: Icon(Icons.event_note_outlined), label: '排班'),
           NavigationDestination(icon: Icon(Icons.reviews_outlined), label: '评价'),
-          NavigationDestination(icon: Icon(Icons.mail_outline), label: '留言'),
           NavigationDestination(icon: Icon(Icons.person), label: '我'),
         ],
       ),

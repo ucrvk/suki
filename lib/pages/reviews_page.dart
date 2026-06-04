@@ -45,6 +45,7 @@ class MaidReviewGroup {
     required this.maidVrcid,
     required this.maidName,
     required this.maidImage,
+    required this.maidExists,
     required this.likeCount,
     required this.reviewCount,
     required this.latestAt,
@@ -54,6 +55,7 @@ class MaidReviewGroup {
   final String maidVrcid;
   final String maidName;
   final String maidImage;
+  final bool maidExists;
   final int likeCount;
   final int reviewCount;
   final DateTime latestAt;
@@ -61,13 +63,15 @@ class MaidReviewGroup {
 }
 
 class ReviewsPage extends StatefulWidget {
-  const ReviewsPage({super.key});
+  const ReviewsPage({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
-  State<ReviewsPage> createState() => _ReviewsPageState();
+  State<ReviewsPage> createState() => ReviewsPageState();
 }
 
-class _ReviewsPageState extends State<ReviewsPage> {
+class ReviewsPageState extends State<ReviewsPage> {
   bool _loading = true;
   bool _submittingReview = false;
   String? _error;
@@ -87,16 +91,34 @@ class _ReviewsPageState extends State<ReviewsPage> {
       if (event == null || event.index != 2) return;
       _handleTabReselect(event.action);
     };
-    AppShell.tabReselectNotifier.addListener(_tabReselectListener);
+    if (!widget.embedded) {
+      AppShell.tabReselectNotifier.addListener(_tabReselectListener);
+    }
     _fetchReviews();
   }
 
   @override
   void dispose() {
-    AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
+    if (!widget.embedded) {
+      AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
+    }
     _scrollController.dispose();
     super.dispose();
   }
+
+  Future<void> scrollToTop() async {
+    if (_scrollController.hasClients) {
+      await _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  Future<void> refreshData() => _fetchReviews(forceRefresh: true);
+
+  Future<void> showSubmitSheet() => _showSubmitReviewSheet();
 
   Future<void> _handleTabReselect(TabReselectAction action) async {
     if (action == TabReselectAction.scrollToTop) {
@@ -155,7 +177,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
           })
           .toList();
 
-      final groups = _buildGroups(parsedRaw, maidImageByVrcid);
+      final existingVrcids = snapshot.maidByVrcid.keys.toSet();
+      final groups = _buildGroups(parsedRaw, maidImageByVrcid, existingVrcids);
 
       if (!mounted) return;
       setState(() {
@@ -178,6 +201,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   List<MaidReviewGroup> _buildGroups(
     List<Map<String, dynamic>> rawReviews,
     Map<String, String> maidImageByVrcid,
+    Set<String> existingVrcids,
   ) {
     final grouped = <String, List<ReviewItem>>{};
 
@@ -216,6 +240,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
           maidVrcid: entry.key,
           maidName: maidName,
           maidImage: maidImageByVrcid[entry.key] ?? '',
+          maidExists: existingVrcids.contains(entry.key),
           likeCount: likeCount,
           reviewCount: reviewCount,
           latestAt: latestAt,
@@ -225,6 +250,9 @@ class _ReviewsPageState extends State<ReviewsPage> {
     }
 
     groups.sort((a, b) {
+      if (a.maidExists != b.maidExists) {
+        return a.maidExists ? -1 : 1;
+      }
       final byLikes = b.likeCount.compareTo(a.likeCount);
       if (byLikes != 0) return byLikes;
 
@@ -325,37 +353,38 @@ class _ReviewsPageState extends State<ReviewsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: BoxDecoration(
-                color: imageBg,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: group.maidImage.isEmpty
-                  ? const Center(
-                      child: Icon(Icons.image_not_supported_outlined, color: Color(0xFF8B8399)),
-                    )
-                  : CachedNetworkImage(
-                      imageUrl: group.maidImage,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      placeholder: (context, url) => const Center(
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+          if (group.maidExists)
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: imageBg,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: group.maidImage.isEmpty
+                    ? const Center(
+                        child: Icon(Icons.image_not_supported_outlined, color: Color(0xFF8B8399)),
+                      )
+                    : CachedNetworkImage(
+                        imageUrl: group.maidImage,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        placeholder: (context, url) => const Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                        errorWidget: (context, url, error) => const Center(
+                          child: Icon(Icons.broken_image_outlined, color: Color(0xFF8B8399)),
                         ),
                       ),
-                      errorWidget: (context, url, error) => const Center(
-                        child: Icon(Icons.broken_image_outlined, color: Color(0xFF8B8399)),
-                      ),
-                    ),
+              ),
             ),
-          ),
           Row(
             children: [
               Expanded(
@@ -543,6 +572,9 @@ class _ReviewsPageState extends State<ReviewsPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return _buildBody();
+    }
     return Scaffold(
       appBar: MainAppBar(
         title: Text('评价 (${_rawReviews.length})'),
