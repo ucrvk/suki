@@ -103,7 +103,7 @@ class ScheduleCacheService {
         .map((e) => Map<String, dynamic>.from(e))
         .map(
           (a) => ScheduleAppointment(
-            guest: (a['guest'] ?? '').toString().trim(),
+            guest: (a['guestUsername'] ?? '').toString().trim(),
             guestUserId: (a['guestUserId'] ?? '').toString().trim(),
             maidName: (a['maidName'] ?? '').toString().trim(),
             maidVrcid: (a['maidVrcid'] ?? '').toString().trim(),
