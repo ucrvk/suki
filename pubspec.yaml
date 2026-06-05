@@ -1,7 +1,7 @@
 ﻿name: suki
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.2.4+1
+version: 1.2.5+1
 environment:
   sdk: ^3.11.1
 
@@ -44,8 +44,6 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/loading.woff2
   fonts:
     - family: IceMoon
       fonts:

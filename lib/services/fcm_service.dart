@@ -123,68 +123,38 @@ class FcmService {
   }
 
   static Future<void> _applyBookingOpenTopicState(bool enabled) async {
-    if (_isWebRuntime) {
-      await _updateWebTopicSubscription(enabled);
-      return;
-    }
-
-    if (enabled) {
-      await _subscribeToTopic();
-    } else {
-      await _unsubscribeFromTopic();
-    }
+    await _updateLambdaTopicSubscription(enabled);
   }
 
-  static Future<void> _subscribeToTopic() async {
-    try {
-      await _messaging.subscribeToTopic(_bookingOpenTopic);
-      debugPrint('FCM topic subscribed: $_bookingOpenTopic');
-    } catch (e) {
-      debugPrint('FCM subscribeToTopic failed: $e');
-      rethrow;
-    }
-  }
-
-  static Future<void> _unsubscribeFromTopic() async {
-    try {
-      await _messaging.unsubscribeFromTopic(_bookingOpenTopic);
-      debugPrint('FCM topic unsubscribed: $_bookingOpenTopic');
-    } catch (e) {
-      debugPrint('FCM unsubscribeFromTopic failed: $e');
-      rethrow;
-    }
-  }
-
-  static Future<void> _updateWebTopicSubscription(bool enabled) async {
+  static Future<void> _updateLambdaTopicSubscription(bool enabled) async {
     if (Uri.base.host != 'suki.wenwen12305.top') {
-      throw StateError('Web Push 仅支持在 https://suki.wenwen12305.top 使用');
+      if (_isWebRuntime) {
+        throw StateError('Web Push 仅支持在 https://suki.wenwen12305.top 使用');
+      }
+    }
+
+    final token = await _messaging.getToken(
+      vapidKey: _isWebRuntime ? _webVapidKey : null,
+    );
+
+    if (token == null || token.trim().isEmpty) {
+      throw StateError('无法获取 FCM token');
     }
 
     if (!enabled) {
-      final token = await _messaging.getToken(vapidKey: _webVapidKey);
-      if (token == null || token.trim().isEmpty) {
-        debugPrint('FCM web unsubscribe skipped because token is missing');
-        return;
-      }
-
       await _callLambdaTopicApi(
         action: 'unsubscribe',
         token: token.trim(),
       );
-      debugPrint('FCM web topic unsubscribed: $_bookingOpenTopic');
+      debugPrint('FCM topic unsubscribed via lambda: $_bookingOpenTopic');
       return;
-    }
-
-    final token = await _messaging.getToken(vapidKey: _webVapidKey);
-    if (token == null || token.trim().isEmpty) {
-      throw StateError('无法获取 Web Push token');
     }
 
     await _callLambdaTopicApi(
       action: 'subscribe',
       token: token.trim(),
     );
-    debugPrint('FCM web topic subscribed: $_bookingOpenTopic');
+    debugPrint('FCM topic subscribed via lambda: $_bookingOpenTopic');
   }
 
   static Future<void> _callLambdaTopicApi({

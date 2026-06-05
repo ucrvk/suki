@@ -42,7 +42,8 @@
       --text-color: #7a7188;
       --shadow: 0 18px 50px rgba(0, 0, 0, 0.08);
       --card-border: rgba(255, 93, 175, 0.12);
-      --card-width: min(88vw, 360px);
+      --card-width: min(86vw, 360px);
+      --card-max-width: 360px;
     }
 
     @media (prefers-color-scheme: dark) {
@@ -90,7 +91,7 @@
 
     .loading-card {
       width: var(--card-width);
-      max-width: 100%;
+      max-width: var(--card-max-width);
       border-radius: 28px;
       padding: 28px 24px 22px;
       background: var(--card-bg);
@@ -188,13 +189,47 @@
     }
 
     @media (max-width: 420px) {
+      :root {
+        --card-width: min(92vw, 420px);
+        --card-max-width: 420px;
+      }
+
       .loading-card {
-        padding: 26px 20px 20px;
-        border-radius: 24px;
+        padding: 30px 22px 24px;
+        border-radius: 26px;
       }
 
       .loading-title {
-        font-size: 20px;
+        font-size: 24px;
+        margin-bottom: 16px;
+      }
+
+      .loading-divider {
+        margin-bottom: 16px;
+      }
+
+      .tip-wrap {
+        min-height: 96px;
+      }
+
+      .tip-text {
+        font-size: 15px;
+        line-height: 1.7;
+      }
+    }
+
+    @media (max-width: 360px) {
+      :root {
+        --card-width: min(94vw, 380px);
+        --card-max-width: 380px;
+      }
+
+      .loading-card {
+        padding: 28px 18px 22px;
+      }
+
+      .loading-title {
+        font-size: 22px;
       }
 
       .tip-text {
