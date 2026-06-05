@@ -5,8 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-
-import 'supabase_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 @pragma('vm:entry-point')
 Future<void> fcmBackgroundMessageHandler(RemoteMessage message) async {
@@ -17,138 +16,214 @@ Future<void> fcmBackgroundMessageHandler(RemoteMessage message) async {
 class FcmService {
   FcmService._();
 
-  static const String _baseUrl = 'https://api.wenwen12305.top/suki';
-  static const String _fcmEndpoint = '$_baseUrl/fcmconnect';
+  static const String _bookingOpenTopic = 'booking_open';
+  static const String _webVapidKey =
+      'BGFSbp0GHbHrUvofxGUL21UdIwT_lPp6YnCyTvv-IT0NOQrV9bdn2BBkKfnmGL9muTW1Sa9Ix1iO36joiZ2g3qI';
+  static const String _lambdaBaseUrl =
+      'https://tdpllor4isco2miay6o3vloewa0kilik.lambda-url.ap-northeast-3.on.aws';
+  static const Duration _networkTimeout = Duration(seconds: 15);
 
   static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
-  static StreamSubscription<String>? _tokenRefreshSub;
   static StreamSubscription<RemoteMessage>? _foregroundMessageSub;
+  static StreamSubscription<String>? _tokenRefreshSub;
   static bool _wired = false;
-  static String? _lastRegisteredEmail;
-  static String? _lastRegisteredFcmToken;
-  static DateTime? _lastRegisteredAt;
+  static bool _bookingOpenTopicEnabled = false;
 
   static bool get _isAndroidRuntime =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  static bool get _isWebRuntime => kIsWeb;
+  static bool get _isPushRuntime => _isAndroidRuntime || _isWebRuntime;
 
-  static Future<void> initializeForCurrentUser() async {
-    if (!_isAndroidRuntime) return;
+  static Future<void> initialize() async {
+    if (!_isPushRuntime) return;
     await _ensureWired();
-    final user = SupabaseService.client.auth.currentUser;
-    final email = (user?.email ?? '').trim();
-    if (email.isEmpty) return;
-    await registerForEmail(email);
   }
 
-  static Future<void> registerForEmail(String email) async {
-    if (!_isAndroidRuntime) return;
-    final normalizedEmail = email.trim();
-    if (normalizedEmail.isEmpty) return;
-    await _ensureWired();
+  static Future<void> requestNotificationPermission() async {
+    if (_isWebRuntime) {
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
 
-    final settings = await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
-    if (settings.authorizationStatus == AuthorizationStatus.denied) {
-      debugPrint('FCM permission denied, skip register');
-      return;
-    }
-
-    final fcmToken = await _messaging.getToken();
-    if (fcmToken == null || fcmToken.trim().isEmpty) {
-      debugPrint('FCM token empty, skip register');
-      return;
-    }
-    await _register(normalizedEmail, fcmToken.trim());
-  }
-
-  static Future<void> unregisterByEmail(String email) async {
-    if (!_isAndroidRuntime) return;
-    final normalizedEmail = email.trim();
-    if (normalizedEmail.isEmpty) return;
-
-    final encodedEmail = Uri.encodeQueryComponent(normalizedEmail);
-    final uri = Uri.parse('$_fcmEndpoint?email=$encodedEmail');
-    try {
-      final response = await http.delete(uri, headers: {
-        'accept': 'application/json',
-      });
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        debugPrint('FCM unregister failed: ${response.statusCode} ${response.body}');
-      } else {
-        _lastRegisteredEmail = null;
-        _lastRegisteredFcmToken = null;
-        _lastRegisteredAt = null;
+      switch (settings.authorizationStatus) {
+        case AuthorizationStatus.authorized:
+        case AuthorizationStatus.provisional:
+          return;
+        case AuthorizationStatus.denied:
+          throw NotificationPermissionDeniedException(
+            message: '浏览器已拒绝通知权限',
+          );
+        case AuthorizationStatus.notDetermined:
+          throw NotificationPermissionDeniedException(
+            message: '浏览器尚未授予通知权限',
+          );
       }
-    } catch (e) {
-      debugPrint('FCM unregister exception: $e');
-      rethrow;
+    }
+
+    if (!_isAndroidRuntime) return;
+
+    final currentStatus = await Permission.notification.status;
+    if (currentStatus.isGranted) return;
+
+    final requested = await Permission.notification.request();
+    if (requested.isGranted || requested.isLimited) return;
+
+    throw NotificationPermissionDeniedException(
+      message: requested.isPermanentlyDenied || requested.isRestricted
+          ? '通知权限被系统拒绝'
+          : '通知权限已被拒绝',
+      needsAppSettings:
+          requested.isPermanentlyDenied || requested.isRestricted,
+      permissionStatus: requested,
+    );
+  }
+
+  static Future<void> setBookingOpenTopicEnabled(bool enabled) async {
+    if (!_isPushRuntime) return;
+    await _ensureWired();
+
+    if (enabled == _bookingOpenTopicEnabled) {
+      if (enabled) {
+        await _applyBookingOpenTopicState(true);
+      }
+      return;
+    }
+
+    if (enabled) {
+      await _applyBookingOpenTopicState(true);
+      _bookingOpenTopicEnabled = true;
+    } else {
+      await _applyBookingOpenTopicState(false);
+      _bookingOpenTopicEnabled = false;
     }
   }
 
   static Future<void> _ensureWired() async {
     if (_wired) return;
-    FirebaseMessaging.onBackgroundMessage(fcmBackgroundMessageHandler);
+
+    if (_isAndroidRuntime) {
+      FirebaseMessaging.onBackgroundMessage(fcmBackgroundMessageHandler);
+    }
+
     _foregroundMessageSub ??= FirebaseMessaging.onMessage.listen((message) {
       debugPrint('FCM foreground message: ${message.messageId}');
     });
     _tokenRefreshSub ??= _messaging.onTokenRefresh.listen((newToken) async {
-      final user = SupabaseService.client.auth.currentUser;
-      final email = (user?.email ?? '').trim();
-      if (email.isEmpty || newToken.trim().isEmpty) return;
+      if (newToken.trim().isEmpty) return;
+      if (!_bookingOpenTopicEnabled) return;
       try {
-        await _register(email, newToken.trim(), bypassDedup: true);
+        await _applyBookingOpenTopicState(true);
       } catch (e) {
-        debugPrint('FCM token refresh register failed: $e');
+        debugPrint('FCM topic resubscribe failed: $e');
       }
     });
     _wired = true;
   }
 
-  static Future<void> _register(
-    String email,
-    String fcmToken, {
-    bool bypassDedup = false,
-  }) async {
-    final session = SupabaseService.client.auth.currentSession;
-    final accessToken = (session?.accessToken ?? '').trim();
-    final refreshToken = (session?.refreshToken ?? '').trim();
-    if (accessToken.isEmpty || refreshToken.isEmpty) {
-      debugPrint('Session token missing, skip FCM register');
+  static Future<void> _applyBookingOpenTopicState(bool enabled) async {
+    if (_isWebRuntime) {
+      await _updateWebTopicSubscription(enabled);
       return;
     }
 
-    final now = DateTime.now();
-    final hitDedup = !bypassDedup &&
-        _lastRegisteredEmail == email &&
-        _lastRegisteredFcmToken == fcmToken &&
-        _lastRegisteredAt != null &&
-        now.difference(_lastRegisteredAt!) < const Duration(minutes: 1);
-    if (hitDedup) return;
+    if (enabled) {
+      await _subscribeToTopic();
+    } else {
+      await _unsubscribeFromTopic();
+    }
+  }
 
-    final response = await http.post(
-      Uri.parse(_fcmEndpoint),
-      headers: {
-        'content-type': 'application/json',
-        'accept': 'application/json',
-      },
-      body: jsonEncode({
-        'email': email,
-        'token': accessToken,
-        'refreshtoken': refreshToken,
-        'fcm': fcmToken,
-      }),
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('FCM register failed: ${response.statusCode} ${response.body}');
+  static Future<void> _subscribeToTopic() async {
+    try {
+      await _messaging.subscribeToTopic(_bookingOpenTopic);
+      debugPrint('FCM topic subscribed: $_bookingOpenTopic');
+    } catch (e) {
+      debugPrint('FCM subscribeToTopic failed: $e');
+      rethrow;
+    }
+  }
+
+  static Future<void> _unsubscribeFromTopic() async {
+    try {
+      await _messaging.unsubscribeFromTopic(_bookingOpenTopic);
+      debugPrint('FCM topic unsubscribed: $_bookingOpenTopic');
+    } catch (e) {
+      debugPrint('FCM unsubscribeFromTopic failed: $e');
+      rethrow;
+    }
+  }
+
+  static Future<void> _updateWebTopicSubscription(bool enabled) async {
+    if (Uri.base.host != 'suki.wenwen12305.top') {
+      throw StateError('Web Push 仅支持在 https://suki.wenwen12305.top 使用');
     }
 
-    _lastRegisteredEmail = email;
-    _lastRegisteredFcmToken = fcmToken;
-    _lastRegisteredAt = now;
+    if (!enabled) {
+      final token = await _messaging.getToken(vapidKey: _webVapidKey);
+      if (token == null || token.trim().isEmpty) {
+        debugPrint('FCM web unsubscribe skipped because token is missing');
+        return;
+      }
+
+      await _callLambdaTopicApi(
+        action: 'unsubscribe',
+        token: token.trim(),
+      );
+      debugPrint('FCM web topic unsubscribed: $_bookingOpenTopic');
+      return;
+    }
+
+    final token = await _messaging.getToken(vapidKey: _webVapidKey);
+    if (token == null || token.trim().isEmpty) {
+      throw StateError('无法获取 Web Push token');
+    }
+
+    await _callLambdaTopicApi(
+      action: 'subscribe',
+      token: token.trim(),
+    );
+    debugPrint('FCM web topic subscribed: $_bookingOpenTopic');
+  }
+
+  static Future<void> _callLambdaTopicApi({
+    required String action,
+    required String token,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$_lambdaBaseUrl/fcm/topic'),
+          headers: const {
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(<String, dynamic>{
+            'action': action,
+            'token': token,
+            'topic': _bookingOpenTopic,
+          }),
+        )
+        .timeout(_networkTimeout);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError(
+        'Lambda topic API failed (${response.statusCode}): ${response.body}',
+      );
+    }
   }
 }
 
+class NotificationPermissionDeniedException implements Exception {
+  NotificationPermissionDeniedException({
+    required this.message,
+    this.needsAppSettings = false,
+    this.permissionStatus,
+  });
+
+  final String message;
+  final bool needsAppSettings;
+  final PermissionStatus? permissionStatus;
+
+  @override
+  String toString() => message;
+}

@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -20,9 +22,16 @@ class MePage extends StatefulWidget {
 }
 
 class _MePageState extends State<MePage> {
+  static const _notificationEnabledKey = 'notification_enabled';
+  static const _bookingOpenEnabledKey = 'notification_booking_open_enabled';
+
   bool _loading = true;
   bool _isLoggedIn = false;
   bool _submitting = false;
+  bool _notificationLoading = true;
+  bool _notificationSubmitting = false;
+  bool _notificationEnabled = false;
+  bool _bookingOpenEnabled = false;
   String? _email;
   String? _username;
   String? _announcement;
@@ -38,6 +47,7 @@ class _MePageState extends State<MePage> {
     _restoreAuth();
     _loadAnnouncement();
     _loadAppVersion();
+    unawaited(_loadNotificationSettings());
     _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((event) {
       _applySession(event.session);
     });
@@ -96,27 +106,140 @@ class _MePageState extends State<MePage> {
       _email = email;
       _username = username;
     });
-    final normalizedEmail = (email ?? '').trim();
-    if (normalizedEmail.isNotEmpty) {
-      unawaited(FcmService.registerForEmail(normalizedEmail));
-    }
   }
 
   Future<void> _logout() async {
-    final email = (_email ?? '').trim();
-    if (email.isNotEmpty) {
-      try {
-        await FcmService.unregisterByEmail(email);
-      } catch (_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('通知解绑失败，已继续退出登录')),
-          );
-        }
-      }
-    }
     await SupabaseService.client.auth.signOut();
     _applySession(null);
+  }
+
+  Future<void> _loadNotificationSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final notificationEnabled = prefs.getBool(_notificationEnabledKey) ?? false;
+    final bookingOpenEnabled = prefs.getBool(_bookingOpenEnabledKey) ?? false;
+    final normalizedBookingOpenEnabled = notificationEnabled ? bookingOpenEnabled : false;
+
+    if (!mounted) return;
+    setState(() {
+      _notificationEnabled = notificationEnabled;
+      _bookingOpenEnabled = normalizedBookingOpenEnabled;
+      _notificationLoading = false;
+    });
+
+    if (!notificationEnabled && bookingOpenEnabled) {
+      await prefs.setBool(_bookingOpenEnabledKey, false);
+    }
+
+    if (notificationEnabled && normalizedBookingOpenEnabled) {
+      unawaited(FcmService.setBookingOpenTopicEnabled(true));
+    }
+  }
+
+  Future<void> _saveNotificationSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_notificationEnabledKey, _notificationEnabled);
+    await prefs.setBool(_bookingOpenEnabledKey, _bookingOpenEnabled);
+  }
+
+  Future<void> _setNotificationEnabled(bool enabled) async {
+    if (_notificationSubmitting) return;
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() {
+      _notificationSubmitting = true;
+    });
+
+    try {
+      if (enabled) {
+        try {
+          await FcmService.requestNotificationPermission();
+          if (!mounted) return;
+          setState(() {
+            _notificationEnabled = true;
+          });
+          await _saveNotificationSettings();
+          if (_bookingOpenEnabled) {
+            try {
+              await FcmService.setBookingOpenTopicEnabled(true);
+            } catch (e) {
+              if (!mounted) return;
+              setState(() {
+                _bookingOpenEnabled = false;
+              });
+              await _saveNotificationSettings();
+              messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+            }
+          }
+        } on NotificationPermissionDeniedException catch (e) {
+          if (!mounted) return;
+          if (e.needsAppSettings) {
+            await openAppSettings();
+          }
+          setState(() {
+            _notificationEnabled = false;
+            _bookingOpenEnabled = false;
+          });
+          await _saveNotificationSettings();
+          await FcmService.setBookingOpenTopicEnabled(false);
+          messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+        }
+      } else {
+        try {
+          await FcmService.setBookingOpenTopicEnabled(false);
+          if (!mounted) return;
+          setState(() {
+            _notificationEnabled = false;
+            _bookingOpenEnabled = false;
+          });
+          await _saveNotificationSettings();
+        } catch (e) {
+          if (!mounted) return;
+          messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _notificationSubmitting = false;
+        });
+      } else {
+        _notificationSubmitting = false;
+      }
+    }
+  }
+
+  Future<void> _setBookingOpenEnabled(bool enabled) async {
+    if (_notificationSubmitting || !_notificationEnabled) return;
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() {
+      _notificationSubmitting = true;
+    });
+
+    try {
+      setState(() {
+        _bookingOpenEnabled = enabled;
+      });
+      await FcmService.setBookingOpenTopicEnabled(enabled);
+      await _saveNotificationSettings();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _bookingOpenEnabled = !enabled;
+      });
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _notificationSubmitting = false;
+        });
+      } else {
+        _notificationSubmitting = false;
+      }
+    }
   }
 
   Future<void> _loadAnnouncement() async {
@@ -262,6 +385,8 @@ class _MePageState extends State<MePage> {
         _buildAccountSection(),
         const SizedBox(height: 12),
         _buildNoticeSection(),
+        const SizedBox(height: 12),
+        _buildNotificationSection(),
         const SizedBox(height: 12),
         _buildMetaSection(),
       ],
@@ -427,6 +552,66 @@ class _MePageState extends State<MePage> {
               );
             },
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotificationSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.notifications_none_rounded),
+            title: Text(
+              '通知设置',
+              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
+            ),
+            subtitle: Text(
+              '为了在应用关闭时仍然能接收到消息，请开启自启动权限',
+              style: TextStyle(color: subColor),
+            ),
+          ),
+          if (_notificationLoading)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 16),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else ...[
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              title: const Text('通知总开关'),
+              subtitle: Text(
+                '开启后可接收系统通知',
+                style: TextStyle(color: subColor),
+              ),
+              value: _notificationEnabled,
+              onChanged: _notificationSubmitting ? null : _setNotificationEnabled,
+            ),
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              title: const Text('订阅预约开始提示'),
+              subtitle: Text(
+                _notificationEnabled ? '订阅 booking_open topic' : '请先打开总开关',
+                style: TextStyle(color: subColor),
+              ),
+              value: _bookingOpenEnabled,
+              onChanged: (!_notificationEnabled || _notificationSubmitting)
+                  ? null
+                  : _setBookingOpenEnabled,
+            ),
+            const SizedBox(height: 8),
+          ],
         ],
       ),
     );

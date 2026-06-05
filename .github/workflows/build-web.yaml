@@ -17,6 +17,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -31,8 +37,45 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Decode Android keystore
+        shell: bash
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
+
       - name: Build web
         run: flutter build web --release
+
+      - name: Generate assetlinks.json
+        shell: bash
+        run: |
+          SHA256_FINGERPRINT=$(keytool -list -v \
+            -keystore android/upload-keystore.jks \
+            -storepass "${{ secrets.ANDROID_STORE_PASSWORD }}" \
+            -alias "${{ vars.ANDROID_KEY_ALIAS }}" \
+            | awk -F': ' '/SHA256:/{print $2; exit}')
+
+          if [ -z "$SHA256_FINGERPRINT" ]; then
+            echo "Failed to extract SHA-256 fingerprint from keystore" >&2
+            exit 1
+          fi
+
+          mkdir -p build/web/.well-known
+          cat > build/web/.well-known/assetlinks.json <<EOF
+          [
+            {
+              "relation": [
+                "delegate_permission/common.handle_all_urls"
+              ],
+              "target": {
+                "namespace": "android_app",
+                "package_name": "top.wenwen12305.suki",
+                "sha256_cert_fingerprints": [
+                  "$SHA256_FINGERPRINT"
+                ]
+              }
+            }
+          ]
+          EOF
 
       - name: Deploy to Cloudflare Workers
         env:
