@@ -10,9 +10,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/maid_catalog_cache_service.dart';
 import '../services/fcm_service.dart';
+import '../services/queue_tab_settings.dart';
 import '../services/supabase_service.dart';
-import 'account_settings_page.dart';
 import '../widgets/main_app_bar.dart';
+import 'account_settings_page.dart';
 
 class MePage extends StatefulWidget {
   const MePage({super.key});
@@ -37,6 +38,7 @@ class _MePageState extends State<MePage> {
   String? _announcement;
   String _appVersion = '-';
   StreamSubscription<AuthState>? _authStateSub;
+  late final VoidCallback _queueTabListener;
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -48,6 +50,13 @@ class _MePageState extends State<MePage> {
     _loadAnnouncement();
     _loadAppVersion();
     unawaited(_loadNotificationSettings());
+    unawaited(QueueTabSettings.load());
+    _queueTabListener = () {
+      if (mounted) {
+        setState(() {});
+      }
+    };
+    QueueTabSettings.enabledNotifier.addListener(_queueTabListener);
     _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((event) {
       _applySession(event.session);
     });
@@ -55,6 +64,7 @@ class _MePageState extends State<MePage> {
 
   @override
   void dispose() {
+    QueueTabSettings.enabledNotifier.removeListener(_queueTabListener);
     _authStateSub?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
@@ -388,6 +398,8 @@ class _MePageState extends State<MePage> {
         const SizedBox(height: 12),
         _buildNotificationSection(),
         const SizedBox(height: 12),
+        _buildQueueSection(),
+        const SizedBox(height: 12),
         _buildMetaSection(),
       ],
     );
@@ -613,6 +625,33 @@ class _MePageState extends State<MePage> {
             const SizedBox(height: 8),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildQueueSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: SwitchListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        title: Text(
+          '显示排队栏',
+          style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
+        ),
+        subtitle: Text(
+          QueueTabSettings.enabledNotifier.value ? '底栏将显示排队入口' : '打开后在底栏左侧显示排队入口',
+          style: TextStyle(color: subColor),
+        ),
+        value: QueueTabSettings.enabledNotifier.value,
+        onChanged: _notificationSubmitting ? null : (enabled) => unawaited(QueueTabSettings.setEnabled(enabled)),
       ),
     );
   }

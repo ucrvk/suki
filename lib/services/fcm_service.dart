@@ -16,11 +16,9 @@ Future<void> fcmBackgroundMessageHandler(RemoteMessage message) async {
 class FcmService {
   FcmService._();
 
-  static const String _bookingOpenTopic = 'booking_open';
+  static const String _subscriptionBaseUrl = 'https://api.wenwen12305.top/suki';
   static const String _webVapidKey =
       'BGFSbp0GHbHrUvofxGUL21UdIwT_lPp6YnCyTvv-IT0NOQrV9bdn2BBkKfnmGL9muTW1Sa9Ix1iO36joiZ2g3qI';
-  static const String _lambdaBaseUrl =
-      'https://tdpllor4isco2miay6o3vloewa0kilik.lambda-url.ap-northeast-3.on.aws';
   static const Duration _networkTimeout = Duration(seconds: 15);
 
   static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
@@ -28,6 +26,7 @@ class FcmService {
   static StreamSubscription<String>? _tokenRefreshSub;
   static bool _wired = false;
   static bool _bookingOpenTopicEnabled = false;
+  static String? _lastKnownToken;
 
   static bool get _isAndroidRuntime =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -52,12 +51,9 @@ class FcmService {
         case AuthorizationStatus.provisional:
           return;
         case AuthorizationStatus.denied:
-          throw NotificationPermissionDeniedException(
-            message: '浏览器已拒绝通知权限',
-          );
         case AuthorizationStatus.notDetermined:
           throw NotificationPermissionDeniedException(
-            message: '浏览器尚未授予通知权限',
+            message: '浏览器未授予通知权限',
           );
       }
     }
@@ -86,18 +82,13 @@ class FcmService {
 
     if (enabled == _bookingOpenTopicEnabled) {
       if (enabled) {
-        await _applyBookingOpenTopicState(true);
+        await _syncSubscriptionState(enabled: true);
       }
       return;
     }
 
-    if (enabled) {
-      await _applyBookingOpenTopicState(true);
-      _bookingOpenTopicEnabled = true;
-    } else {
-      await _applyBookingOpenTopicState(false);
-      _bookingOpenTopicEnabled = false;
-    }
+    await _syncSubscriptionState(enabled: enabled);
+    _bookingOpenTopicEnabled = enabled;
   }
 
   static Future<void> _ensureWired() async {
@@ -112,72 +103,114 @@ class FcmService {
     });
     _tokenRefreshSub ??= _messaging.onTokenRefresh.listen((newToken) async {
       if (newToken.trim().isEmpty) return;
+
+      final previousToken = _lastKnownToken?.trim();
+      _lastKnownToken = newToken.trim();
+
       if (!_bookingOpenTopicEnabled) return;
+
       try {
-        await _applyBookingOpenTopicState(true);
+        if (previousToken != null &&
+            previousToken.isNotEmpty &&
+            previousToken != newToken.trim()) {
+          await _callSubscriptionApi(
+            method: 'DELETE',
+            token: previousToken,
+          );
+        }
+        await _callSubscriptionApi(
+          method: 'POST',
+          token: newToken.trim(),
+        );
       } catch (e) {
-        debugPrint('FCM topic resubscribe failed: $e');
+        debugPrint('FCM token refresh resubscribe failed: $e');
       }
     });
     _wired = true;
   }
 
-  static Future<void> _applyBookingOpenTopicState(bool enabled) async {
-    await _updateLambdaTopicSubscription(enabled);
-  }
-
-  static Future<void> _updateLambdaTopicSubscription(bool enabled) async {
-    if (Uri.base.host != 'suki.wenwen12305.top') {
-      if (_isWebRuntime) {
-        throw StateError('Web Push 仅支持在 https://suki.wenwen12305.top 使用');
-      }
-    }
-
-    final token = await _messaging.getToken(
-      vapidKey: _isWebRuntime ? _webVapidKey : null,
-    );
-
+  static Future<void> _syncSubscriptionState({required bool enabled}) async {
+    final token = await _getCurrentToken();
     if (token == null || token.trim().isEmpty) {
       throw StateError('无法获取 FCM token');
     }
 
+    final normalizedToken = token.trim();
+    final previousToken = _lastKnownToken?.trim();
+    _lastKnownToken = normalizedToken;
+
     if (!enabled) {
-      await _callLambdaTopicApi(
-        action: 'unsubscribe',
-        token: token.trim(),
-      );
-      debugPrint('FCM topic unsubscribed via lambda: $_bookingOpenTopic');
+      try {
+        await _callSubscriptionApi(
+          method: 'DELETE',
+          token: normalizedToken,
+        );
+      } finally {
+        if (previousToken != null &&
+            previousToken.isNotEmpty &&
+            previousToken != normalizedToken) {
+          try {
+            await _callSubscriptionApi(
+              method: 'DELETE',
+              token: previousToken,
+            );
+          } catch (e) {
+            debugPrint('FCM previous token unsubscribe failed: $e');
+          }
+        }
+      }
       return;
     }
 
-    await _callLambdaTopicApi(
-      action: 'subscribe',
-      token: token.trim(),
+    if (previousToken != null &&
+        previousToken.isNotEmpty &&
+        previousToken != normalizedToken) {
+      try {
+        await _callSubscriptionApi(
+          method: 'DELETE',
+          token: previousToken,
+        );
+      } catch (e) {
+        debugPrint('FCM previous token cleanup failed: $e');
+      }
+    }
+
+    await _callSubscriptionApi(
+      method: 'POST',
+      token: normalizedToken,
     );
-    debugPrint('FCM topic subscribed via lambda: $_bookingOpenTopic');
   }
 
-  static Future<void> _callLambdaTopicApi({
-    required String action,
+  static Future<String?> _getCurrentToken() {
+    if (_isWebRuntime) {
+      return _messaging.getToken(vapidKey: _webVapidKey);
+    }
+    return _messaging.getToken();
+  }
+
+  static Future<String?> getCurrentToken() => _getCurrentToken();
+
+  static Future<void> _callSubscriptionApi({
+    required String method,
     required String token,
   }) async {
-    final response = await http
-        .post(
-          Uri.parse('$_lambdaBaseUrl/fcm/topic'),
-          headers: const {
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(<String, dynamic>{
-            'action': action,
-            'token': token,
-            'topic': _bookingOpenTopic,
-          }),
-        )
-        .timeout(_networkTimeout);
+    final request = http.Request(
+      method,
+      Uri.parse('$_subscriptionBaseUrl/subscription'),
+    );
+    request.headers.addAll(const {
+      'Content-Type': 'application/json',
+    });
+    request.body = jsonEncode(<String, dynamic>{
+      'token': token,
+    });
 
+    final response = await http.Response.fromStream(await request.send())
+        .timeout(_networkTimeout);
+    final responseBody = response.body;
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError(
-        'Lambda topic API failed (${response.statusCode}): ${response.body}',
+        'Subscription API failed (${response.statusCode}): $responseBody',
       );
     }
   }

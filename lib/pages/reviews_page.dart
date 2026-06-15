@@ -88,7 +88,7 @@ class ReviewsPageState extends State<ReviewsPage> {
     super.initState();
     _tabReselectListener = () {
       final event = AppShell.tabReselectNotifier.value;
-      if (event == null || event.index != 2) return;
+      if (event == null || event.index != AppShell.feedbackTabIndex()) return;
       _handleTabReselect(event.action);
     };
     if (!widget.embedded) {
@@ -154,7 +154,6 @@ class ReviewsPageState extends State<ReviewsPage> {
           ? (firstConfig!['max_reviews_per_user'] as num).toInt()
           : null;
 
-      final hiddenMaidVrcids = snapshot.hiddenMaidVrcids;
       final maidImageByVrcid = snapshot.maidImageByVrcid;
 
       final maidOptions = <MaidOption>[];
@@ -162,7 +161,7 @@ class ReviewsPageState extends State<ReviewsPage> {
         final vrcid = (maid['vrcid'] ?? '').toString().trim();
         final name = (maid['name'] ?? '').toString().trim();
         if (vrcid.isEmpty) continue;
-        if (!hiddenMaidVrcids.contains(vrcid) && name.isNotEmpty) {
+        if (name.isNotEmpty) {
           maidOptions.add(MaidOption(vrcid: vrcid, name: name));
         }
       }
@@ -171,10 +170,6 @@ class ReviewsPageState extends State<ReviewsPage> {
       final parsedRaw = raw
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
-          .where((row) {
-            final maidVrcid = (row['maid_vrcid'] ?? '').toString().trim();
-            return !hiddenMaidVrcids.contains(maidVrcid);
-          })
           .toList();
 
       final existingVrcids = snapshot.maidByVrcid.keys.toSet();

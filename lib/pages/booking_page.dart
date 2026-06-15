@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_shell.dart';
 import '../services/booking_service.dart';
@@ -69,7 +70,7 @@ class _BookingPageState extends State<BookingPage> {
     });
     _tabReselectListener = () {
       final event = AppShell.tabReselectNotifier.value;
-      if (event == null || event.index != 0) return;
+      if (event == null || event.index != AppShell.bookingTabIndex()) return;
       _handleTabReselect(event.action);
     };
     AppShell.tabReselectNotifier.addListener(_tabReselectListener);
@@ -132,6 +133,7 @@ class _BookingPageState extends State<BookingPage> {
   }
 
   Future<void> _fetchMaids({bool forceRefresh = false}) async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -139,6 +141,7 @@ class _BookingPageState extends State<BookingPage> {
 
     try {
       final snapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
+      if (!mounted) return;
 
       setState(() {
         _maids = snapshot.maids;
@@ -154,6 +157,7 @@ class _BookingPageState extends State<BookingPage> {
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -268,7 +272,7 @@ class _BookingPageState extends State<BookingPage> {
           content: const Text('请先登录后再预约'),
           action: SnackBarAction(
             label: '去登录',
-            onPressed: () => AppShell.switchToTab(3),
+            onPressed: () => AppShell.switchToTab(AppShell.meTabIndex()),
           ),
         ),
       );
@@ -436,6 +440,18 @@ class _BookingPageState extends State<BookingPage> {
             ),
           ],
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton(
+              onPressed: () async {
+                final uri = Uri.parse('https://vrcsuki.chat/catking');
+                await launchUrl(uri, mode: LaunchMode.inAppWebView);
+              },
+              child: const Text('猫王争霸'),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: _loading || _error != null
           ? null

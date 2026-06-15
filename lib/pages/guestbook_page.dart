@@ -34,7 +34,7 @@ class GuestbookPageState extends State<GuestbookPage> {
     super.initState();
     _tabReselectListener = () {
       final event = AppShell.tabReselectNotifier.value;
-      if (event == null || event.index != 3) return;
+      if (event == null || event.index != AppShell.feedbackTabIndex()) return;
       _handleTabReselect(event.action);
     };
     if (!widget.embedded) {

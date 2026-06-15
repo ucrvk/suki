@@ -59,7 +59,7 @@ class _SchedulePageState extends State<SchedulePage> {
     });
     _tabReselectListener = () {
       final event = AppShell.tabReselectNotifier.value;
-      if (event == null || event.index != 1) return;
+      if (event == null || event.index != AppShell.scheduleTabIndex()) return;
       _handleTabReselect(event.action);
     };
     AppShell.tabReselectNotifier.addListener(_tabReselectListener);
@@ -184,7 +184,10 @@ class _SchedulePageState extends State<SchedulePage> {
 
     final visibleMaids = snapshot.maids.where((m) {
       final vrcid = (m['vrcid'] ?? '').toString().trim();
-      return vrcid.isNotEmpty && !snapshot.hiddenMaidVrcids.contains(vrcid);
+      final disabled = m['disabled'] == true;
+      return vrcid.isNotEmpty &&
+          !disabled &&
+          !snapshot.hiddenMaidVrcids.contains(vrcid);
     }).toList();
     final reservations = _parseReservations(snapshot.reservations);
 
