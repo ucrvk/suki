@@ -134,26 +134,33 @@ class _BookingPageState extends State<BookingPage> {
 
   Future<void> _fetchMaids({bool forceRefresh = false}) async {
     if (!mounted) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
 
     try {
-      final snapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
-      if (!mounted) return;
+      if (!forceRefresh) {
+        final cached = await MaidCatalogCacheService.loadCachedSnapshot();
+        if (cached != null) {
+          if (!mounted) return;
+          _applySnapshot(cached);
+          setState(() {
+            _loading = false;
+            _error = null;
+          });
+          unawaited(_refreshMaidsInBackground());
+          return;
+        }
+      }
 
       setState(() {
-        _maids = snapshot.maids;
-        _reservations = snapshot.reservations;
-        _bookingEnabled = snapshot.bookingEnabled;
-        _hiddenMaidVrcids = snapshot.hiddenMaidVrcids;
-        _timeSlots = snapshot.timeSlots;
-        _bookedSlotKeys = snapshot.reservations
-            .map((e) => Map<String, dynamic>.from(e))
-            .where((a) => (a['maidVrcid'] ?? '').toString().trim().isNotEmpty && (a['timeSlot'] ?? '').toString().trim().isNotEmpty)
-            .map((a) => '${(a['maidVrcid'] ?? '').toString().trim()}|${(a['timeSlot'] ?? '').toString().trim()}')
-            .toSet();
+        _loading = true;
+        _error = null;
+      });
+
+      final snapshot = forceRefresh
+          ? await MaidCatalogCacheService.refreshSnapshot()
+          : await MaidCatalogCacheService.getSnapshot(forceRefresh: true);
+      if (!mounted) return;
+      _applySnapshot(snapshot);
+      setState(() {
         _loading = false;
       });
     } catch (e) {
@@ -162,6 +169,31 @@ class _BookingPageState extends State<BookingPage> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  void _applySnapshot(MaidCatalogSnapshot snapshot) {
+    _maids = snapshot.maids;
+    _reservations = snapshot.reservations;
+    _bookingEnabled = snapshot.bookingEnabled;
+    _hiddenMaidVrcids = snapshot.hiddenMaidVrcids;
+    _timeSlots = snapshot.timeSlots;
+    _bookedSlotKeys = snapshot.reservations
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((a) => (a['maidVrcid'] ?? '').toString().trim().isNotEmpty && (a['timeSlot'] ?? '').toString().trim().isNotEmpty)
+        .map((a) => '${(a['maidVrcid'] ?? '').toString().trim()}|${(a['timeSlot'] ?? '').toString().trim()}')
+        .toSet();
+  }
+
+  Future<void> _refreshMaidsInBackground() async {
+    try {
+      final snapshot = await MaidCatalogCacheService.refreshSnapshot();
+      if (!mounted) return;
+      setState(() {
+        _applySnapshot(snapshot);
+      });
+    } catch (_) {
+      // Keep the cached state if refresh fails.
     }
   }
 

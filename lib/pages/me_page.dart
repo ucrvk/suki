@@ -254,17 +254,37 @@ class _MePageState extends State<MePage> {
 
   Future<void> _loadAnnouncement() async {
     try {
-      final snapshot = await MaidCatalogCacheService.getSnapshot();
-      final announcement = snapshot.announcement;
+      final cached = await MaidCatalogCacheService.loadCachedSnapshot();
+      if (cached != null && mounted) {
+        setState(() {
+          _announcement = cached.announcement;
+        });
+        unawaited(_refreshAnnouncement());
+        return;
+      }
+
+      final snapshot = await MaidCatalogCacheService.refreshSnapshot();
       if (!mounted) return;
       setState(() {
-        _announcement = announcement;
+        _announcement = snapshot.announcement;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _announcement = '';
       });
+    }
+  }
+
+  Future<void> _refreshAnnouncement() async {
+    try {
+      final snapshot = await MaidCatalogCacheService.refreshSnapshot();
+      if (!mounted) return;
+      setState(() {
+        _announcement = snapshot.announcement;
+      });
+    } catch (_) {
+      // Keep the cached announcement if refresh fails.
     }
   }
 

@@ -1,3 +1,4 @@
+import 'maid_content_cache_store.dart';
 import 'supabase_service.dart';
 
 class IntroProfileRecord {
@@ -36,7 +37,42 @@ class IntroProfileRecord {
 class IntroProfileService {
   IntroProfileService._();
 
-  static Future<List<IntroProfileRecord>> fetchProfiles() async {
+  static const String _cacheKey = 'intro_profile_records';
+
+  static Future<List<IntroProfileRecord>?> loadCachedProfiles() async {
+    await MaidContentCacheStore.ensureInitialized();
+    if (!MaidContentCacheStore.containsKey(_cacheKey)) {
+      return null;
+    }
+
+    final raw = MaidContentCacheStore.read<Map>(_cacheKey);
+    if (raw == null) return null;
+    final records = _recordsFromCache(raw);
+    return records;
+  }
+
+  static Future<List<IntroProfileRecord>> refreshProfiles() async {
+    final records = await _fetchProfilesFromNetwork();
+    await MaidContentCacheStore.ensureInitialized();
+    await MaidContentCacheStore.write(
+      _cacheKey,
+      {
+        'records': records.map(_recordToCache).toList(),
+        'fetchedAt': DateTime.now().millisecondsSinceEpoch,
+      },
+    );
+    return records;
+  }
+
+  static Future<List<IntroProfileRecord>> getProfiles({bool forceRefresh = false}) async {
+    if (!forceRefresh) {
+      final cached = await loadCachedProfiles();
+      if (cached != null) return cached;
+    }
+    return refreshProfiles();
+  }
+
+  static Future<List<IntroProfileRecord>> _fetchProfilesFromNetwork() async {
     final results = await Future.wait([
       SupabaseService.client
           .from('suki_catgirl_profiles')
@@ -97,6 +133,54 @@ class IntroProfileService {
     });
 
     return records;
+  }
+
+  static List<IntroProfileRecord> _recordsFromCache(Map raw) {
+    final records = ((raw['records'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .map(_recordFromCache)
+        .toList();
+
+    records.sort((a, b) {
+      final byName = a.username.compareTo(b.username);
+      if (byName != 0) return byName;
+      return a.userId.compareTo(b.userId);
+    });
+
+    return records;
+  }
+
+  static Map<String, dynamic> _recordToCache(IntroProfileRecord record) {
+    return {
+      'userId': record.userId,
+      'username': record.username,
+      'avatarUrl': record.avatarUrl,
+      'illustrationUrl': record.illustrationUrl,
+      'extraImage1Url': record.extraImage1Url,
+      'extraImage2Url': record.extraImage2Url,
+      'shortBio': record.shortBio,
+      'fullBio': record.fullBio,
+      'statHp': record.statHp,
+      'statAtk': record.statAtk,
+      'statDef': record.statDef,
+    };
+  }
+
+  static IntroProfileRecord _recordFromCache(Map<String, dynamic> raw) {
+    return IntroProfileRecord(
+      userId: (raw['userId'] ?? '').toString().trim(),
+      username: (raw['username'] ?? '').toString().trim(),
+      avatarUrl: (raw['avatarUrl'] ?? '').toString().trim(),
+      illustrationUrl: (raw['illustrationUrl'] ?? '').toString().trim(),
+      extraImage1Url: (raw['extraImage1Url'] ?? '').toString().trim(),
+      extraImage2Url: (raw['extraImage2Url'] ?? '').toString().trim(),
+      shortBio: (raw['shortBio'] ?? '').toString().trim(),
+      fullBio: (raw['fullBio'] ?? '').toString().trim(),
+      statHp: _parseInt(raw['statHp']),
+      statAtk: _parseInt(raw['statAtk']),
+      statDef: _parseInt(raw['statDef']),
+    );
   }
 
   static int _parseInt(dynamic value) {

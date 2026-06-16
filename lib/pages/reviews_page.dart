@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'dart:async';
+
 import '../app_shell.dart';
 import '../services/maid_catalog_cache_service.dart';
+import '../services/reviews_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
 
@@ -135,53 +138,59 @@ class ReviewsPageState extends State<ReviewsPage> {
   }
 
   Future<void> _fetchReviews({bool forceRefresh = false}) async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
     try {
-      final raw = await SupabaseService.client.from('suki_reviews').select('*');
-      final config = await SupabaseService.client.from('suki_review_config').select('*').limit(1);
-      final snapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
-
-      final firstConfig = config.isNotEmpty ? Map<String, dynamic>.from(config.first) : null;
-      final presetComments = ((firstConfig?['preset_comments'] as List?) ?? const [])
-          .map((e) => e.toString().trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-      final maxReviewsPerUser = firstConfig?['max_reviews_per_user'] is num
-          ? (firstConfig!['max_reviews_per_user'] as num).toInt()
-          : null;
-
-      final maidImageByVrcid = snapshot.maidImageByVrcid;
-
-      final maidOptions = <MaidOption>[];
-      for (final maid in snapshot.maids) {
-        final vrcid = (maid['vrcid'] ?? '').toString().trim();
-        final name = (maid['name'] ?? '').toString().trim();
-        if (vrcid.isEmpty) continue;
-        if (name.isNotEmpty) {
-          maidOptions.add(MaidOption(vrcid: vrcid, name: name));
-        }
+      ReviewsCacheSnapshot? cachedReviews;
+      MaidCatalogSnapshot? cachedCatalog;
+      if (!forceRefresh) {
+        cachedReviews = await ReviewsCacheService.loadCachedSnapshot();
+        cachedCatalog = await MaidCatalogCacheService.loadCachedSnapshot();
       }
-      maidOptions.sort((a, b) => a.name.compareTo(b.name));
 
-      final parsedRaw = raw
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
+      if (cachedReviews != null || cachedCatalog != null) {
+        if (!mounted) return;
+        final reviewsSnapshot = cachedReviews ??
+            ReviewsCacheSnapshot(
+              rawReviews: [],
+              presetComments: [],
+              maxReviewsPerUser: null,
+              fetchedAt: DateTime.fromMillisecondsSinceEpoch(0),
+            );
+        final catalogSnapshot = cachedCatalog ??
+            MaidCatalogSnapshot(
+              maids: [],
+              reservations: [],
+              timeSlots: [],
+              bookingEnabled: true,
+              announcement: '',
+              maidByVrcid: {},
+              maidImageByVrcid: {},
+              hiddenMaidVrcids: {},
+              fetchedAt: DateTime.fromMillisecondsSinceEpoch(0),
+            );
+        _applySnapshots(reviewsSnapshot, catalogSnapshot);
+        setState(() {
+          _loading = false;
+          _error = null;
+        });
+        unawaited(_refreshDataInBackground());
+        return;
+      }
 
-      final existingVrcids = snapshot.maidByVrcid.keys.toSet();
-      final groups = _buildGroups(parsedRaw, maidImageByVrcid, existingVrcids);
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+
+      final reviewsSnapshot = forceRefresh
+          ? await ReviewsCacheService.refreshSnapshot()
+          : await ReviewsCacheService.getSnapshot(forceRefresh: true);
+      final catalogSnapshot = forceRefresh
+          ? await MaidCatalogCacheService.refreshSnapshot()
+          : await MaidCatalogCacheService.getSnapshot(forceRefresh: true);
 
       if (!mounted) return;
+      _applySnapshots(reviewsSnapshot, catalogSnapshot);
       setState(() {
-        _rawReviews = parsedRaw;
-        _groups = groups;
-        _maidOptions = maidOptions;
-        _presetComments = presetComments;
-        _maxReviewsPerUser = maxReviewsPerUser;
         _loading = false;
       });
     } catch (e) {
@@ -190,6 +199,48 @@ class ReviewsPageState extends State<ReviewsPage> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  void _applySnapshots(
+    ReviewsCacheSnapshot reviewsSnapshot,
+    MaidCatalogSnapshot catalogSnapshot,
+  ) {
+    final maidImageByVrcid = catalogSnapshot.maidImageByVrcid;
+
+    final maidOptions = <MaidOption>[];
+    for (final maid in catalogSnapshot.maids) {
+      final vrcid = (maid['vrcid'] ?? '').toString().trim();
+      final name = (maid['name'] ?? '').toString().trim();
+      if (vrcid.isEmpty) continue;
+      if (name.isNotEmpty) {
+        maidOptions.add(MaidOption(vrcid: vrcid, name: name));
+      }
+    }
+    maidOptions.sort((a, b) => a.name.compareTo(b.name));
+
+    final existingVrcids = catalogSnapshot.maidByVrcid.keys.toSet();
+    final groups = _buildGroups(reviewsSnapshot.rawReviews, maidImageByVrcid, existingVrcids);
+
+    _rawReviews = reviewsSnapshot.rawReviews;
+    _groups = groups;
+    _maidOptions = maidOptions;
+    _presetComments = reviewsSnapshot.presetComments;
+    _maxReviewsPerUser = reviewsSnapshot.maxReviewsPerUser;
+  }
+
+  Future<void> _refreshDataInBackground() async {
+    try {
+      final results = await Future.wait([
+        ReviewsCacheService.refreshSnapshot(),
+        MaidCatalogCacheService.refreshSnapshot(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _applySnapshots(results[0] as ReviewsCacheSnapshot, results[1] as MaidCatalogSnapshot);
+      });
+    } catch (_) {
+      // Keep the cached review state if refresh fails.
     }
   }
 

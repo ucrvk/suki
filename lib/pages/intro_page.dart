@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -67,13 +69,30 @@ class IntroPageState extends State<IntroPage> {
 
   Future<void> _loadData({bool forceRefresh = false}) async {
     if (!mounted) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
 
     try {
-      final records = await IntroProfileService.fetchProfiles();
+      if (!forceRefresh) {
+        final cached = await IntroProfileService.loadCachedProfiles();
+        if (cached != null) {
+          if (!mounted) return;
+          setState(() {
+            _records = cached;
+            _loading = false;
+            _error = null;
+          });
+          unawaited(_refreshDataInBackground());
+          return;
+        }
+      }
+
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+
+      final records = forceRefresh
+          ? await IntroProfileService.refreshProfiles()
+          : await IntroProfileService.getProfiles(forceRefresh: true);
       if (!mounted) return;
       setState(() {
         _records = records;
@@ -85,6 +104,18 @@ class IntroPageState extends State<IntroPage> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _refreshDataInBackground() async {
+    try {
+      final records = await IntroProfileService.refreshProfiles();
+      if (!mounted) return;
+      setState(() {
+        _records = records;
+      });
+    } catch (_) {
+      // Keep the cached profiles if refresh fails.
     }
   }
 

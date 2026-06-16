@@ -3,7 +3,10 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'dart:async';
+
 import '../app_shell.dart';
+import '../services/guestbook_cache_service.dart';
 import '../services/guestbook_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
@@ -22,9 +25,9 @@ class GuestbookPageState extends State<GuestbookPage> {
 
   final List<GuestbookEntry> _entries = [];
   final Set<String> _likedIds = {};
+  int _visibleCount = 0;
   bool _isLoading = false;
   bool _isSubmitting = false;
-  bool _hasMore = true;
   String? _error;
   final ScrollController _scrollController = ScrollController();
   late final VoidCallback _tabReselectListener;
@@ -40,7 +43,7 @@ class GuestbookPageState extends State<GuestbookPage> {
     if (!widget.embedded) {
       AppShell.tabReselectNotifier.addListener(_tabReselectListener);
     }
-    _loadEntries(isRefresh: true);
+    _loadEntries();
   }
 
   @override
@@ -62,7 +65,7 @@ class GuestbookPageState extends State<GuestbookPage> {
     }
   }
 
-  Future<void> refreshData() => _loadEntries(isRefresh: true);
+  Future<void> refreshData() => _loadEntries(forceRefresh: true);
 
   Future<void> showSubmitSheet() => _showSubmitMessageSheet();
 
@@ -77,42 +80,48 @@ class GuestbookPageState extends State<GuestbookPage> {
       }
       return;
     }
-    await _loadEntries(isRefresh: true);
+    await _loadEntries(forceRefresh: true);
   }
 
-  Future<void> _loadEntries({bool isRefresh = false}) async {
+  Future<void> _loadEntries({bool forceRefresh = false}) async {
     if (_isLoading) return;
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-
     try {
-      final offset = isRefresh ? 0 : _entries.length;
-
-      final response = await SupabaseService.client
-          .from('suki_guestbook')
-          .select()
-          .eq('approved', true)
-          .order('pinned', ascending: false)
-          .order('created_at', ascending: false)
-          .range(offset, offset + _pageSize - 1);
-
-      final List<dynamic> data = response as List<dynamic>;
-      final newEntries = data
-          .map((json) => GuestbookEntry.fromJson(json))
-          .toList();
+      if (!forceRefresh) {
+        final cached = await GuestbookCacheService.loadCachedSnapshot();
+        if (cached != null) {
+          if (!mounted) return;
+          setState(() {
+            _entries
+              ..clear()
+              ..addAll(cached.entries);
+            _visibleCount = _preservedVisibleCount(cached.entries.length);
+            _error = null;
+            _isLoading = false;
+          });
+          unawaited(_refreshEntriesInBackground());
+          return;
+        }
+      }
 
       setState(() {
-        if (isRefresh) {
-          _entries.clear();
-        }
-        _entries.addAll(newEntries);
-        _hasMore = newEntries.length >= _pageSize;
+        _isLoading = true;
+        _error = null;
+      });
+
+      final snapshot = forceRefresh
+          ? await GuestbookCacheService.refreshSnapshot()
+          : await GuestbookCacheService.getSnapshot(forceRefresh: true);
+      if (!mounted) return;
+      setState(() {
+        _entries
+          ..clear()
+          ..addAll(snapshot.entries);
+        _visibleCount = _preservedVisibleCount(snapshot.entries.length);
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _isLoading = false;
@@ -121,7 +130,33 @@ class GuestbookPageState extends State<GuestbookPage> {
   }
 
   Future<void> _onRefresh() async {
-    await _loadEntries(isRefresh: true);
+    await _loadEntries(forceRefresh: true);
+  }
+
+  int _initialVisibleCount(int total) {
+    if (total <= 0) return 0;
+    return total < _pageSize ? total : _pageSize;
+  }
+
+  int _preservedVisibleCount(int total) {
+    if (_visibleCount <= 0) return _initialVisibleCount(total);
+    if (_visibleCount > total) return total;
+    return _visibleCount;
+  }
+
+  Future<void> _refreshEntriesInBackground() async {
+    try {
+      final snapshot = await GuestbookCacheService.refreshSnapshot();
+      if (!mounted) return;
+      setState(() {
+        _entries
+          ..clear()
+          ..addAll(snapshot.entries);
+        _visibleCount = _preservedVisibleCount(snapshot.entries.length);
+      });
+    } catch (_) {
+      // Keep the cached guestbook if refresh fails.
+    }
   }
 
   Future<void> _toggleLike(GuestbookEntry entry) async {
@@ -187,6 +222,7 @@ class GuestbookPageState extends State<GuestbookPage> {
         }
         // Re-read actual count from next refresh; keep optimistic for now
       });
+      unawaited(_refreshEntriesInBackground());
     } on PostgrestException catch (e) {
       // Revert on error
       if (!mounted) return;
@@ -328,7 +364,7 @@ class GuestbookPageState extends State<GuestbookPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('留言提交成功: $messageId')));
-      await _loadEntries(isRefresh: true);
+      await _loadEntries(forceRefresh: true);
     } on PostgrestException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -355,13 +391,33 @@ class GuestbookPageState extends State<GuestbookPage> {
       return _buildErrorWidget();
     }
 
+    if (_entries.isEmpty && !_isLoading) {
+      return RefreshIndicator(
+        onRefresh: _onRefresh,
+        child: ListView(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 220),
+            Center(
+              child: Text(
+                '暂无留言',
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return RefreshIndicator(
       onRefresh: _onRefresh,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final count = _columnCount(constraints.maxWidth);
-          final hasTailTile = _hasMore || _isLoading;
-          final itemCount = _entries.length + (hasTailTile ? 1 : 0);
+          final visibleEntries = _entries.take(_visibleCount).toList();
+          final hasTailTile = _visibleCount < _entries.length;
+          final itemCount = visibleEntries.length + (hasTailTile ? 1 : 0);
 
           return MasonryGridView.builder(
             controller: _scrollController,
@@ -377,7 +433,7 @@ class GuestbookPageState extends State<GuestbookPage> {
               if (hasTailTile && index == itemCount - 1) {
                 return _buildLoadMoreWidgetTile();
               }
-              return _buildEntryCard(_entries[index]);
+              return _buildEntryCard(visibleEntries[index]);
             },
           );
         },
@@ -531,44 +587,17 @@ class GuestbookPageState extends State<GuestbookPage> {
   }
 
   Widget _buildLoadMoreWidgetTile() {
-    if (_isLoading && _entries.isNotEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(16),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_isLoading) {
-      return const Padding(
-        padding: EdgeInsets.all(32),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (!_hasMore && _entries.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    if (!_hasMore) {
-      return Padding(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: Text(
-            '— 已经到底了 —',
-            style: TextStyle(
-              fontSize: 13,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      );
-    }
-
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Center(
         child: OutlinedButton.icon(
-          onPressed: () => _loadEntries(),
+          onPressed: _visibleCount >= _entries.length
+              ? null
+              : () {
+                  setState(() {
+                    _visibleCount = (_visibleCount + _pageSize).clamp(0, _entries.length);
+                  });
+                },
           icon: const Icon(Icons.expand_more, size: 18),
           label: const Text('加载更多'),
           style: OutlinedButton.styleFrom(
@@ -611,7 +640,7 @@ class GuestbookPageState extends State<GuestbookPage> {
             ),
             const SizedBox(height: 16),
             FilledButton.tonal(
-              onPressed: () => _loadEntries(isRefresh: true),
+              onPressed: () => _loadEntries(forceRefresh: true),
               child: const Text('重试'),
             ),
           ],

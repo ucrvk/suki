@@ -89,13 +89,29 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   Future<void> _loadData({bool forceRefresh = false}) async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
     try {
-      final snapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
+      if (!forceRefresh) {
+        final cached = await MaidCatalogCacheService.loadCachedSnapshot();
+        if (cached != null) {
+          if (!mounted) return;
+          setState(() {
+            _snapshot = cached;
+            _loading = false;
+            _error = null;
+          });
+          unawaited(_refreshDataInBackground());
+          return;
+        }
+      }
+
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+
+      final snapshot = forceRefresh
+          ? await MaidCatalogCacheService.refreshSnapshot()
+          : await MaidCatalogCacheService.getSnapshot(forceRefresh: true);
       if (!mounted) return;
       setState(() {
         _snapshot = snapshot;
@@ -107,6 +123,18 @@ class _SchedulePageState extends State<SchedulePage> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _refreshDataInBackground() async {
+    try {
+      final snapshot = await MaidCatalogCacheService.refreshSnapshot();
+      if (!mounted) return;
+      setState(() {
+        _snapshot = snapshot;
+      });
+    } catch (_) {
+      // Keep the cached schedule snapshot if refresh fails.
     }
   }
 

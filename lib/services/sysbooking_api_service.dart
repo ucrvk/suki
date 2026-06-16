@@ -9,12 +9,14 @@ import 'supabase_service.dart';
 
 class SysbookingQueueItem {
   const SysbookingQueueItem({
+    required this.bookingId,
     required this.maidId,
     required this.timeslot,
     required this.queue,
     required this.autoqueue,
   });
 
+  final String bookingId;
   final String maidId;
   final int timeslot;
   final int queue;
@@ -22,6 +24,7 @@ class SysbookingQueueItem {
 
   factory SysbookingQueueItem.fromJson(Map<String, dynamic> json) {
     return SysbookingQueueItem(
+      bookingId: (json['booking_id'] ?? '').toString().trim(),
       maidId: (json['maid_id'] ?? '').toString().trim(),
       timeslot: json['timeslot'] is num
           ? (json['timeslot'] as num).toInt()
@@ -190,6 +193,103 @@ class SysbookingApiService {
         )
         .where((item) => item.maidId.isNotEmpty)
         .toList();
+  }
+
+  static Future<void> updateQueueAutoqueue({
+    required String bookingToken,
+    required String bookingId,
+    required bool autoqueue,
+  }) async {
+    final response = await http.put(
+      _resolve('/sysbooking/booking'),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      body: jsonEncode({
+        'booking_id': bookingId.trim(),
+        'autoqueue': autoqueue,
+      }),
+    );
+
+    if (response.statusCode == 401) {
+      throw SysbookingUnauthorizedException(
+        _extractError(response.body, fallback: '登录已失效，请重新登录'),
+        statusCode: response.statusCode,
+      );
+    }
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw SysbookingApiException(
+        _extractError(response.body, fallback: '切换自动排队失败'),
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
+  static Future<void> deleteQueueBooking({
+    required String bookingToken,
+    required String bookingId,
+  }) async {
+    final response = await http.delete(
+      _resolve('/sysbooking/booking'),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      body: jsonEncode({
+        'booking_id': bookingId.trim(),
+      }),
+    );
+
+    if (response.statusCode == 401) {
+      throw SysbookingUnauthorizedException(
+        _extractError(response.body, fallback: '登录已失效，请重新登录'),
+        statusCode: response.statusCode,
+      );
+    }
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw SysbookingApiException(
+        _extractError(response.body, fallback: '删除预约失败'),
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
+  static Future<String> createQueueBooking({
+    required String bookingToken,
+    required String maidId,
+    required int timeslot,
+    required bool autoqueue,
+    required bool withFriend,
+  }) async {
+    final response = await http.post(
+      _resolve('/sysbooking/booking'),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      body: jsonEncode({
+        'maid_id': maidId.trim(),
+        'timeslot': timeslot,
+        'autoqueue': autoqueue,
+        'with_friend': withFriend,
+      }),
+    );
+
+    if (response.statusCode == 401) {
+      throw SysbookingUnauthorizedException(
+        _extractError(response.body, fallback: '登录已失效，请重新登录'),
+        statusCode: response.statusCode,
+      );
+    }
+    if (response.statusCode != 201 && response.statusCode != 200) {
+      throw SysbookingApiException(
+        _extractError(response.body, fallback: '添加排队失败'),
+        statusCode: response.statusCode,
+      );
+    }
+
+    if (response.body.trim().isEmpty) {
+      return '';
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is Map<String, dynamic>) {
+      return (decoded['booking_id'] ?? '').toString().trim();
+    }
+
+    throw const SysbookingApiException('添加排队失败，响应格式错误');
   }
 
   static String _extractError(String body, {required String fallback}) {

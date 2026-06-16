@@ -1,6 +1,8 @@
-﻿
-import 'supabase_service.dart';
+import 'dart:async';
+
+import 'maid_content_cache_store.dart';
 import 'maid_image_manifest_service.dart';
+import 'supabase_service.dart';
 
 class MaidCatalogSnapshot {
   const MaidCatalogSnapshot({
@@ -29,14 +31,55 @@ class MaidCatalogSnapshot {
 class MaidCatalogCacheService {
   MaidCatalogCacheService._();
 
-  static MaidCatalogSnapshot? _snapshot;
+  static const String _cacheKey = 'maid_catalog_snapshot';
 
-  static Future<MaidCatalogSnapshot> getSnapshot({bool forceRefresh = false}) async {
-    if (!forceRefresh && _snapshot != null) {
-      return _snapshot!;
+  static MaidCatalogSnapshot? _snapshot;
+  static Future<MaidCatalogSnapshot>? _refreshing;
+
+  static Future<MaidCatalogSnapshot?> loadCachedSnapshot() async {
+    await MaidContentCacheStore.ensureInitialized();
+    await MaidImageManifestService.fetchManifest(forceRefresh: false);
+    if (!MaidContentCacheStore.containsKey(_cacheKey)) {
+      return null;
     }
 
-    await MaidImageManifestService.fetchManifest(forceRefresh: forceRefresh);
+    final raw = MaidContentCacheStore.read<Map>(_cacheKey);
+    if (raw == null) return null;
+
+    final snapshot = _snapshotFromCache(raw);
+    _snapshot = snapshot;
+    return snapshot;
+  }
+
+  static Future<MaidCatalogSnapshot> getSnapshot({bool forceRefresh = false}) async {
+    if (!forceRefresh) {
+      if (_snapshot != null) {
+        await MaidImageManifestService.fetchManifest(forceRefresh: false);
+        _snapshot = _normalizeSnapshotImages(_snapshot!);
+        return _snapshot!;
+      }
+
+      final cached = await loadCachedSnapshot();
+      if (cached != null) {
+        return cached;
+      }
+    }
+
+    return refreshSnapshot();
+  }
+
+  static Future<MaidCatalogSnapshot> refreshSnapshot() {
+    return _refreshing ??= _fetchAndCacheSnapshot().whenComplete(() {
+      _refreshing = null;
+    });
+  }
+
+  static void invalidate() {
+    _snapshot = null;
+  }
+
+  static Future<MaidCatalogSnapshot> _fetchAndCacheSnapshot() async {
+    await MaidImageManifestService.fetchManifest(forceRefresh: true);
 
     final results = await Future.wait([
       SupabaseService.client.from('suki_booking').select('maids').limit(1),
@@ -72,40 +115,129 @@ class MaidCatalogCacheService {
         .where((e) => e.isNotEmpty)
         .toList();
 
-    final maidByVrcid = <String, Map<String, dynamic>>{};
-    final maidImageByVrcid = <String, String>{};
-    final hiddenMaidVrcids = <String>{};
-
-    for (final maid in maids) {
-      final vrcid = (maid['vrcid'] ?? '').toString().trim();
-      if (vrcid.isEmpty) continue;
-
-      final resolvedImage = MaidImageManifestService.resolveImageUrl(vrcid);
-      maid['image'] = resolvedImage;
-      maidByVrcid[vrcid] = maid;
-      maidImageByVrcid[vrcid] = resolvedImage;
-      if (_shouldHideMaid(maid)) {
-        hiddenMaidVrcids.add(vrcid);
-      }
-    }
-
-    _snapshot = MaidCatalogSnapshot(
+    final snapshot = _buildSnapshot(
       maids: maids,
       reservations: reservations,
       timeSlots: timeSlots,
       bookingEnabled: metaFirst['booking_enabled'] == true,
       announcement: (metaFirst['announcement'] ?? '').toString().trim(),
-      maidByVrcid: maidByVrcid,
-      maidImageByVrcid: maidImageByVrcid,
-      hiddenMaidVrcids: hiddenMaidVrcids,
       fetchedAt: DateTime.now(),
     );
 
-    return _snapshot!;
+    await MaidContentCacheStore.ensureInitialized();
+    await MaidContentCacheStore.write(_cacheKey, _snapshotToCache(snapshot));
+
+    _snapshot = snapshot;
+    return snapshot;
   }
 
-  static void invalidate() {
-    _snapshot = null;
+  static MaidCatalogSnapshot _snapshotFromCache(Map raw) {
+    final cachedMaids = ((raw['maids'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final cachedReservations = ((raw['reservations'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final cachedTimeSlots = ((raw['timeSlots'] as List?) ?? const [])
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    final bookingEnabled = raw['bookingEnabled'] == true;
+    final announcement = (raw['announcement'] ?? '').toString().trim();
+    final fetchedAtValue = raw['fetchedAt'];
+    final fetchedAt = fetchedAtValue is num
+        ? DateTime.fromMillisecondsSinceEpoch(fetchedAtValue.toInt())
+        : DateTime.now();
+
+    return _buildSnapshot(
+      maids: cachedMaids,
+      reservations: cachedReservations,
+      timeSlots: cachedTimeSlots,
+      bookingEnabled: bookingEnabled,
+      announcement: announcement,
+      fetchedAt: fetchedAt,
+    );
+  }
+
+  static Map<String, dynamic> _snapshotToCache(MaidCatalogSnapshot snapshot) {
+    return {
+      'maids': snapshot.maids,
+      'reservations': snapshot.reservations,
+      'timeSlots': snapshot.timeSlots,
+      'bookingEnabled': snapshot.bookingEnabled,
+      'announcement': snapshot.announcement,
+      'fetchedAt': snapshot.fetchedAt.millisecondsSinceEpoch,
+    };
+  }
+
+  static MaidCatalogSnapshot _buildSnapshot({
+    required List<Map<String, dynamic>> maids,
+    required List<Map<String, dynamic>> reservations,
+    required List<String> timeSlots,
+    required bool bookingEnabled,
+    required String announcement,
+    required DateTime fetchedAt,
+  }) {
+    final normalizedMaids = <Map<String, dynamic>>[];
+    final maidByVrcid = <String, Map<String, dynamic>>{};
+    final maidImageByVrcid = <String, String>{};
+    final hiddenMaidVrcids = <String>{};
+
+    for (final maid in maids) {
+      final normalized = Map<String, dynamic>.from(maid);
+      final vrcid = (normalized['vrcid'] ?? '').toString().trim();
+      if (vrcid.isEmpty) {
+        normalized.remove('image');
+        normalizedMaids.add(normalized);
+        continue;
+      }
+
+      final resolvedImage = MaidImageManifestService.resolveImageUrl(vrcid);
+      normalized['image'] = resolvedImage;
+
+      normalizedMaids.add(normalized);
+      maidByVrcid[vrcid] = normalized;
+      maidImageByVrcid[vrcid] = resolvedImage;
+      if (_shouldHideMaid(normalized)) {
+        hiddenMaidVrcids.add(vrcid);
+      }
+    }
+
+    return MaidCatalogSnapshot(
+      maids: normalizedMaids,
+      reservations: reservations,
+      timeSlots: timeSlots,
+      bookingEnabled: bookingEnabled,
+      announcement: announcement,
+      maidByVrcid: maidByVrcid,
+      maidImageByVrcid: maidImageByVrcid,
+      hiddenMaidVrcids: hiddenMaidVrcids,
+      fetchedAt: fetchedAt,
+    );
+  }
+
+  static MaidCatalogSnapshot _normalizeSnapshotImages(MaidCatalogSnapshot snapshot) {
+    final maids = snapshot.maids.map((maid) {
+      final normalized = Map<String, dynamic>.from(maid);
+      final vrcid = (normalized['vrcid'] ?? '').toString().trim();
+      if (vrcid.isEmpty) {
+        normalized.remove('image');
+      } else {
+        normalized['image'] = MaidImageManifestService.resolveImageUrl(vrcid);
+      }
+      return normalized;
+    }).toList();
+
+    return _buildSnapshot(
+      maids: maids,
+      reservations: snapshot.reservations,
+      timeSlots: snapshot.timeSlots,
+      bookingEnabled: snapshot.bookingEnabled,
+      announcement: snapshot.announcement,
+      fetchedAt: snapshot.fetchedAt,
+    );
   }
 
   static bool _shouldHideMaid(Map<String, dynamic> maid) {
