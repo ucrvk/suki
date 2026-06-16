@@ -249,6 +249,39 @@ class SysbookingApiService {
     }
   }
 
+  static Future<void> setQueueNotificationEnabled({
+    required String bookingToken,
+    required String fcmToken,
+    required bool enabled,
+  }) async {
+    final normalizedFcmToken = fcmToken.trim();
+    if (normalizedFcmToken.isEmpty) {
+      throw const SysbookingApiException('无法获取 FCM token');
+    }
+
+    final response = await http.put(
+      _resolve('/sysbooking/notification'),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      body: jsonEncode({
+        'fcm_token': normalizedFcmToken,
+        'notification': enabled,
+      }),
+    );
+
+    if (response.statusCode == 401) {
+      throw SysbookingUnauthorizedException(
+        _extractError(response.body, fallback: '登录已失效，请重新登录'),
+        statusCode: response.statusCode,
+      );
+    }
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw SysbookingApiException(
+        _extractError(response.body, fallback: '更新排队通知失败'),
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
   static Future<String> createQueueBooking({
     required String bookingToken,
     required String maidId,

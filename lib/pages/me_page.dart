@@ -10,6 +10,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/maid_catalog_cache_service.dart';
 import '../services/fcm_service.dart';
+import '../services/sysbooking_api_service.dart';
+import '../services/sysbooking_session_store.dart';
 import '../services/queue_tab_settings.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
@@ -25,6 +27,8 @@ class MePage extends StatefulWidget {
 class _MePageState extends State<MePage> {
   static const _notificationEnabledKey = 'notification_enabled';
   static const _bookingOpenEnabledKey = 'notification_booking_open_enabled';
+  static const _queueNotificationEnabledKey = 'queue_notification_enabled';
+  static const _queueNotificationFcmTokenKey = 'queue_notification_fcm_token';
 
   bool _loading = true;
   bool _isLoggedIn = false;
@@ -33,6 +37,9 @@ class _MePageState extends State<MePage> {
   bool _notificationSubmitting = false;
   bool _notificationEnabled = false;
   bool _bookingOpenEnabled = false;
+  bool _queueNotificationLoading = true;
+  bool _queueNotificationSubmitting = false;
+  bool _queueNotificationEnabled = false;
   String? _email;
   String? _username;
   String? _announcement;
@@ -50,6 +57,7 @@ class _MePageState extends State<MePage> {
     _loadAnnouncement();
     _loadAppVersion();
     unawaited(_loadNotificationSettings());
+    unawaited(_loadQueueNotificationSettings());
     unawaited(QueueTabSettings.load());
     _queueTabListener = () {
       if (mounted) {
@@ -149,6 +157,191 @@ class _MePageState extends State<MePage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_notificationEnabledKey, _notificationEnabled);
     await prefs.setBool(_bookingOpenEnabledKey, _bookingOpenEnabled);
+  }
+
+  Future<String?> _resolveQueueNotificationFcmToken({
+    String? fallbackToken,
+    bool allowFallback = true,
+  }) async {
+    try {
+      final currentToken = await FcmService.getCurrentToken()
+          .timeout(const Duration(seconds: 5));
+      final normalizedCurrent = currentToken?.trim();
+      if (normalizedCurrent != null && normalizedCurrent.isNotEmpty) {
+        return normalizedCurrent;
+      }
+    } on TimeoutException {
+      // Fall through to the cached token if allowed.
+    } catch (_) {
+      // Fall through to the cached token if allowed.
+    }
+
+    if (!allowFallback) return null;
+
+    final normalizedFallback = fallbackToken?.trim();
+    if (normalizedFallback != null && normalizedFallback.isNotEmpty) {
+      return normalizedFallback;
+    }
+    return null;
+  }
+
+  Future<void> _loadQueueNotificationSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cachedEnabled = prefs.getBool(_queueNotificationEnabledKey) ?? false;
+    final cachedToken = prefs.getString(_queueNotificationFcmTokenKey)?.trim();
+
+    if (!mounted) return;
+    setState(() {
+      _queueNotificationEnabled = cachedEnabled;
+      _queueNotificationLoading = false;
+    });
+
+    if (!cachedEnabled) return;
+
+    final bookingToken = await SysbookingSessionStore.loadBookingToken();
+    if (bookingToken == null) {
+      if (!mounted) return;
+      setState(() {
+        _queueNotificationEnabled = false;
+      });
+      await prefs.setBool(_queueNotificationEnabledKey, false);
+      return;
+    }
+
+    final resolvedFcmToken = await _resolveQueueNotificationFcmToken(
+      fallbackToken: cachedToken,
+      allowFallback: true,
+    );
+    if (resolvedFcmToken == null) {
+      if (!mounted) return;
+      setState(() {
+        _queueNotificationEnabled = false;
+      });
+      await prefs.setBool(_queueNotificationEnabledKey, false);
+      return;
+    }
+
+    try {
+      await SysbookingApiService.setQueueNotificationEnabled(
+        bookingToken: bookingToken,
+        fcmToken: resolvedFcmToken,
+        enabled: true,
+      );
+      await prefs.setString(_queueNotificationFcmTokenKey, resolvedFcmToken);
+      await prefs.setBool(_queueNotificationEnabledKey, true);
+    } on SysbookingUnauthorizedException {
+      await SysbookingSessionStore.clearBookingToken();
+      if (!mounted) return;
+      setState(() {
+        _queueNotificationEnabled = false;
+      });
+      await prefs.setBool(_queueNotificationEnabledKey, false);
+    } catch (_) {
+      // Keep the local state as-is on transient failures.
+    }
+  }
+
+  Future<void> _saveQueueNotificationSettings({
+    required bool enabled,
+    String? fcmToken,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_queueNotificationEnabledKey, enabled);
+    if (fcmToken != null && fcmToken.trim().isNotEmpty) {
+      await prefs.setString(_queueNotificationFcmTokenKey, fcmToken.trim());
+    }
+  }
+
+  Future<void> _setQueueNotificationEnabled(bool enabled) async {
+    if (_queueNotificationSubmitting) return;
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() {
+      _queueNotificationSubmitting = true;
+    });
+
+    try {
+      final bookingToken = await SysbookingSessionStore.loadBookingToken();
+      if (bookingToken == null) {
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(content: Text('请先到排队页完成登录，再开启排队通知')),
+        );
+        return;
+      }
+
+      if (enabled) {
+        await FcmService.requestNotificationPermission();
+        final fcmToken = await _resolveQueueNotificationFcmToken(
+          allowFallback: false,
+        );
+        if (fcmToken == null) {
+          throw const SysbookingApiException('无法获取 FCM token');
+        }
+
+        await SysbookingApiService.setQueueNotificationEnabled(
+          bookingToken: bookingToken,
+          fcmToken: fcmToken,
+          enabled: true,
+        );
+        if (!mounted) return;
+        setState(() {
+          _queueNotificationEnabled = true;
+        });
+        await _saveQueueNotificationSettings(
+          enabled: true,
+          fcmToken: fcmToken,
+        );
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final cachedToken = prefs.getString(_queueNotificationFcmTokenKey);
+        final fcmToken = await _resolveQueueNotificationFcmToken(
+          fallbackToken: cachedToken,
+          allowFallback: true,
+        );
+        if (fcmToken == null) {
+          throw const SysbookingApiException('无法获取 FCM token');
+        }
+
+        await SysbookingApiService.setQueueNotificationEnabled(
+          bookingToken: bookingToken,
+          fcmToken: fcmToken,
+          enabled: false,
+        );
+        if (!mounted) return;
+        setState(() {
+          _queueNotificationEnabled = false;
+        });
+        await _saveQueueNotificationSettings(
+          enabled: false,
+          fcmToken: fcmToken,
+        );
+      }
+    } on NotificationPermissionDeniedException catch (e) {
+      if (!mounted) return;
+      if (e.needsAppSettings) {
+        await openAppSettings();
+      }
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    } on SysbookingUnauthorizedException catch (e) {
+      await SysbookingSessionStore.clearBookingToken();
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    } on SysbookingApiException catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _queueNotificationSubmitting = false;
+        });
+      } else {
+        _queueNotificationSubmitting = false;
+      }
+    }
   }
 
   Future<void> _setNotificationEnabled(bool enabled) async {
@@ -660,18 +853,43 @@ class _MePageState extends State<MePage> {
         color: cardBg,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: SwitchListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        title: Text(
-          '显示排队栏',
-          style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
-        ),
-        subtitle: Text(
-          QueueTabSettings.enabledNotifier.value ? '底栏将显示排队入口' : '打开后在底栏左侧显示排队入口',
-          style: TextStyle(color: subColor),
-        ),
-        value: QueueTabSettings.enabledNotifier.value,
-        onChanged: _notificationSubmitting ? null : (enabled) => unawaited(QueueTabSettings.setEnabled(enabled)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: Text(
+              '显示排队栏',
+              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
+            ),
+            subtitle: Text(
+              QueueTabSettings.enabledNotifier.value ? '底栏将显示排队入口' : '打开后在底栏左侧显示排队入口',
+              style: TextStyle(color: subColor),
+            ),
+            value: QueueTabSettings.enabledNotifier.value,
+            onChanged: _notificationSubmitting ? null : (enabled) => unawaited(QueueTabSettings.setEnabled(enabled)),
+          ),
+          SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: Text(
+              '排队通知',
+              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
+            ),
+            subtitle: Text(
+              _queueNotificationLoading
+                  ? '正在恢复排队通知状态'
+                  : _queueNotificationEnabled
+                      ? '已同步排队相关通知'
+                      : '开启后会先发送当前设备的 FCM token',
+              style: TextStyle(color: subColor),
+            ),
+            value: _queueNotificationEnabled,
+            onChanged: (_queueNotificationLoading || _queueNotificationSubmitting)
+                ? null
+                : (enabled) => unawaited(_setQueueNotificationEnabled(enabled)),
+          ),
+          const SizedBox(height: 8),
+        ],
       ),
     );
   }
