@@ -23,6 +23,7 @@ class BookingService {
     required Map<String, dynamic> maid,
     required String timeSlot,
     required bool withFriend,
+    required String friendVrcid,
   }) async {
     final user = SupabaseService.client.auth.currentUser;
     if (user == null) {
@@ -46,6 +47,7 @@ class BookingService {
         'p_time': _formatZhCnNow(),
         'p_created_at': DateTime.now().millisecondsSinceEpoch,
         'p_with_friend': withFriend,
+        'p_friend_vrcid': friendVrcid.trim(),
       },
     );
   }

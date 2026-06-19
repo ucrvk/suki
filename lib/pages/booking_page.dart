@@ -355,6 +355,7 @@ class _BookingPageState extends State<BookingPage> {
 
     String selectedSlot = availableSlots.first;
     bool withFriend = false;
+    final friendVrcidController = TextEditingController();
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
@@ -411,15 +412,38 @@ class _BookingPageState extends State<BookingPage> {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       value: withFriend,
-                      onChanged: (value) =>
-                          setSheetState(() => withFriend = value),
+                      onChanged: (value) {
+                        setSheetState(() {
+                          withFriend = value;
+                        });
+                      },
                       title: const Text('是否带朋友'),
                     ),
+                    if (withFriend) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: friendVrcidController,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: '好友 VRCID',
+                          hintText: '请输入好友的 VRCID',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: () => Navigator.of(sheetContext).pop(true),
+                        onPressed: () {
+                          if (withFriend && friendVrcidController.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('请先填写好友 VRCID')),
+                            );
+                            return;
+                          }
+                          Navigator.of(sheetContext).pop(true);
+                        },
                         child: const Text('确认预约'),
                       ),
                     ),
@@ -444,6 +468,7 @@ class _BookingPageState extends State<BookingPage> {
         maid: item.maid,
         timeSlot: selectedSlot,
         withFriend: withFriend,
+        friendVrcid: friendVrcidController.text,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(
