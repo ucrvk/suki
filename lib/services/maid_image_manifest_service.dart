@@ -8,14 +8,16 @@ import 'maid_content_cache_store.dart';
 class MaidImageManifestService {
   MaidImageManifestService._();
 
-  static const String baseUrl = 'https://api.wenwen12305.top/suki/';
+  static const String baseUrl = 'http://127.0.0.1:6988/';
   static const String _manifestPath = 'manifest.json';
   static const String _imagesPath = 'images';
   static const String _cacheKey = 'maid_image_manifest';
 
   static Map<String, String>? _manifestCache;
 
-  static Future<Map<String, String>> fetchManifest({bool forceRefresh = false}) async {
+  static Future<Map<String, String>> fetchManifest({
+    bool forceRefresh = false,
+  }) async {
     if (!forceRefresh && _manifestCache != null) {
       return _manifestCache!;
     }
@@ -38,7 +40,11 @@ class MaidImageManifestService {
           }
         }
       } catch (e, st) {
-        dev.log('Failed to read cached image manifest: $e', name: 'MaidImageManifestService', stackTrace: st);
+        dev.log(
+          'Failed to read cached image manifest: $e',
+          name: 'MaidImageManifestService',
+          stackTrace: st,
+        );
       }
     }
 
@@ -67,11 +73,19 @@ class MaidImageManifestService {
         await MaidContentCacheStore.ensureInitialized();
         await MaidContentCacheStore.write(_cacheKey, parsed);
       } catch (e, st) {
-        dev.log('Failed to cache image manifest: $e', name: 'MaidImageManifestService', stackTrace: st);
+        dev.log(
+          'Failed to cache image manifest: $e',
+          name: 'MaidImageManifestService',
+          stackTrace: st,
+        );
       }
       return parsed;
     } catch (e, st) {
-      dev.log('Failed to fetch image manifest: $e', name: 'MaidImageManifestService', stackTrace: st);
+      dev.log(
+        'Failed to fetch image manifest: $e',
+        name: 'MaidImageManifestService',
+        stackTrace: st,
+      );
       _manifestCache ??= <String, String>{};
       return _manifestCache!;
     }

@@ -334,6 +334,8 @@ class _QueuePageState extends State<QueuePage> {
         SysbookingQueueItem(
           bookingId: item.bookingId,
           maidId: item.maidId,
+          withFriend: item.withFriend,
+          friendVrcid: item.friendVrcid,
           timeslot: item.timeslot,
           queue: item.queue,
           autoqueue: nextValue,
@@ -364,6 +366,8 @@ class _QueuePageState extends State<QueuePage> {
           SysbookingQueueItem(
             bookingId: item.bookingId,
             maidId: item.maidId,
+            withFriend: item.withFriend,
+            friendVrcid: item.friendVrcid,
             timeslot: item.timeslot,
             queue: item.queue,
             autoqueue: previous,
@@ -380,6 +384,8 @@ class _QueuePageState extends State<QueuePage> {
           SysbookingQueueItem(
             bookingId: item.bookingId,
             maidId: item.maidId,
+            withFriend: item.withFriend,
+            friendVrcid: item.friendVrcid,
             timeslot: item.timeslot,
             queue: item.queue,
             autoqueue: previous,
@@ -477,6 +483,161 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
+  Future<void> _editFriendInfo(SysbookingQueueItem item) async {
+    final bookingId = item.bookingId.trim();
+    if (bookingId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('缺少 booking_id，暂时无法修改好友信息')),
+      );
+      return;
+    }
+    if (_busyBookingIds.contains(bookingId)) return;
+
+    final friendVrcidController = TextEditingController(text: item.friendVrcid);
+    var withFriend = item.withFriend;
+    var submitting = false;
+    String? dialogError;
+    var completed = false;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              Future<void> submit() async {
+                final friendVrcid = friendVrcidController.text.trim();
+                if (withFriend && friendVrcid.isEmpty) {
+                  setDialogState(() {
+                    dialogError = '请填写好友 VRCID';
+                  });
+                  return;
+                }
+
+                setDialogState(() {
+                  submitting = true;
+                  dialogError = null;
+                });
+
+                try {
+                  final bookingToken = _bookingToken?.trim() ?? '';
+                  if (bookingToken.isEmpty) {
+                    throw const SysbookingApiException('登录状态已失效，请重新登录');
+                  }
+
+                  await SysbookingApiService.updateQueueBooking(
+                    bookingToken: bookingToken,
+                    bookingId: bookingId,
+                    withFriend: withFriend,
+                    friendVrcid: withFriend ? friendVrcid : '',
+                  );
+                  if (!dialogContext.mounted) return;
+                  completed = true;
+                  Navigator.of(dialogContext).pop();
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('好友信息已更新')),
+                  );
+                  unawaited(_refreshQueueState(forceRefresh: true));
+                } on SysbookingUnauthorizedException catch (e) {
+                  if (!dialogContext.mounted) return;
+                  completed = true;
+                  Navigator.of(dialogContext).pop();
+                  await _handleUnauthorizedAction(e.message);
+                } on SysbookingApiException catch (e) {
+                  if (!dialogContext.mounted) return;
+                  setDialogState(() {
+                    dialogError = e.message;
+                    submitting = false;
+                  });
+                } catch (e) {
+                  if (!dialogContext.mounted) return;
+                  setDialogState(() {
+                    dialogError = e.toString();
+                    submitting = false;
+                  });
+                } finally {
+                  if (dialogContext.mounted && !completed) {
+                    setDialogState(() => submitting = false);
+                  }
+                }
+              }
+
+              return AlertDialog(
+                title: const Text('修改好友信息'),
+                content: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: withFriend,
+                          onChanged: submitting
+                              ? null
+                              : (value) {
+                                  setDialogState(() {
+                                    withFriend = value;
+                                  });
+                                },
+                          title: const Text('带朋友一起'),
+                        ),
+                        if (withFriend) ...[
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: friendVrcidController,
+                            enabled: !submitting,
+                            textInputAction: TextInputAction.done,
+                            decoration: const InputDecoration(
+                              labelText: '好友 VRCID',
+                              hintText: '请输入好友的 VRCID',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ],
+                        if (dialogError != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            dialogError!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: submitting ? null : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    onPressed: submitting ? null : submit,
+                    child: submitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('保存'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      friendVrcidController.dispose();
+    }
+  }
+
   Future<_AddQueueDialogResult?> _showAddQueueDialog(
     List<_QueueMaidChoice> choices,
   ) async {
@@ -487,173 +648,203 @@ class _QueuePageState extends State<QueuePage> {
     var submitting = false;
     String? dialogError;
     var completed = false;
+    final friendVrcidController = TextEditingController();
 
-    return showDialog<_AddQueueDialogResult>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> submit() async {
-              if (selectedMaid.vrcid.isEmpty) {
-                setDialogState(() {
-                  dialogError = '请选择女仆';
-                });
-                return;
-              }
-
-              setDialogState(() {
-                submitting = true;
-                dialogError = null;
-              });
-
-              try {
-                final bookingToken = _bookingToken?.trim() ?? '';
-                if (bookingToken.isEmpty) {
-                  throw const SysbookingApiException('登录状态已失效，请重新登录');
+    try {
+      return await showDialog<_AddQueueDialogResult>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              Future<void> submit() async {
+                if (selectedMaid.vrcid.isEmpty) {
+                  setDialogState(() {
+                    dialogError = '请选择女仆';
+                  });
+                  return;
                 }
 
-                await SysbookingApiService.createQueueBooking(
-                  bookingToken: bookingToken,
-                  maidId: selectedMaid.vrcid,
-                  timeslot: selectedTimeslot,
-                  autoqueue: autoqueue,
-                  withFriend: withFriend,
-                );
-                if (!dialogContext.mounted) return;
-                completed = true;
-                Navigator.of(dialogContext).pop(
-                  const _AddQueueDialogResult.created(),
-                );
-              } on SysbookingUnauthorizedException catch (e) {
-                if (!dialogContext.mounted) return;
-                completed = true;
-                Navigator.of(dialogContext).pop(
-                  _AddQueueDialogResult.unauthorized(e.message),
-                );
-              } on SysbookingApiException catch (e) {
-                if (!dialogContext.mounted) return;
+                final friendVrcid = friendVrcidController.text.trim();
+                if (withFriend && friendVrcid.isEmpty) {
+                  setDialogState(() {
+                    dialogError = '请填写好友 VRCID';
+                  });
+                  return;
+                }
+
                 setDialogState(() {
-                  dialogError = e.message;
-                  submitting = false;
+                  submitting = true;
+                  dialogError = null;
                 });
-              } catch (e) {
-                if (!dialogContext.mounted) return;
-                setDialogState(() {
-                  dialogError = e.toString();
-                  submitting = false;
-                });
-              } finally {
-                if (dialogContext.mounted && !completed) {
-                  setDialogState(() => submitting = false);
+
+                try {
+                  final bookingToken = _bookingToken?.trim() ?? '';
+                  if (bookingToken.isEmpty) {
+                    throw const SysbookingApiException('登录状态已失效，请重新登录');
+                  }
+
+                  await SysbookingApiService.createQueueBooking(
+                    bookingToken: bookingToken,
+                    maidId: selectedMaid.vrcid,
+                    timeslot: selectedTimeslot,
+                    autoqueue: autoqueue,
+                    withFriend: withFriend,
+                    friendVrcid: withFriend ? friendVrcid : '',
+                  );
+                  if (!dialogContext.mounted) return;
+                  completed = true;
+                  Navigator.of(dialogContext).pop(
+                    const _AddQueueDialogResult.created(),
+                  );
+                } on SysbookingUnauthorizedException catch (e) {
+                  if (!dialogContext.mounted) return;
+                  completed = true;
+                  Navigator.of(dialogContext).pop(
+                    _AddQueueDialogResult.unauthorized(e.message),
+                  );
+                } on SysbookingApiException catch (e) {
+                  if (!dialogContext.mounted) return;
+                  setDialogState(() {
+                    dialogError = e.message;
+                    submitting = false;
+                  });
+                } catch (e) {
+                  if (!dialogContext.mounted) return;
+                  setDialogState(() {
+                    dialogError = e.toString();
+                    submitting = false;
+                  });
+                } finally {
+                  if (dialogContext.mounted && !completed) {
+                    setDialogState(() => submitting = false);
+                  }
                 }
               }
-            }
 
-            return AlertDialog(
-              title: const Text('添加排队'),
-              content: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      DropdownButtonFormField<String>(
-                        initialValue: selectedMaid.vrcid,
-                        decoration: const InputDecoration(labelText: '女仆'),
-                        items: choices
-                            .map(
-                              (choice) => DropdownMenuItem<String>(
-                                value: choice.vrcid,
-                                child: Text(choice.label),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: submitting
-                            ? null
-                            : (value) {
-                                if (value == null) return;
-                                final found = choices.where((e) => e.vrcid == value).toList();
-                                if (found.isEmpty) return;
-                                setDialogState(() {
-                                  selectedMaid = found.first;
-                                });
-                              },
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<int>(
-                        initialValue: selectedTimeslot,
-                        decoration: const InputDecoration(labelText: '时段'),
-                        items: const [
-                          DropdownMenuItem<int>(value: 21, child: Text('21')),
-                          DropdownMenuItem<int>(value: 22, child: Text('22')),
-                        ],
-                        onChanged: submitting
-                            ? null
-                            : (value) {
-                                if (value == null) return;
-                                setDialogState(() {
-                                  selectedTimeslot = value;
-                                });
-                              },
-                      ),
-                      const SizedBox(height: 12),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: autoqueue,
-                        onChanged: submitting
-                            ? null
-                            : (value) => setDialogState(() {
-                                  autoqueue = value;
-                                }),
-                        title: const Text('自动排队'),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: withFriend,
-                        onChanged: submitting
-                            ? null
-                            : (value) => setDialogState(() {
-                                  withFriend = value;
-                                }),
-                        title: const Text('带朋友一起'),
-                      ),
-                      if (dialogError != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          dialogError!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                            fontSize: 13,
-                          ),
+              return AlertDialog(
+                title: const Text('添加排队'),
+                content: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedMaid.vrcid,
+                          decoration: const InputDecoration(labelText: '女仆'),
+                          items: choices
+                              .map(
+                                (choice) => DropdownMenuItem<String>(
+                                  value: choice.vrcid,
+                                  child: Text(choice.label),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: submitting
+                              ? null
+                              : (value) {
+                                  if (value == null) return;
+                                  final found = choices.where((e) => e.vrcid == value).toList();
+                                  if (found.isEmpty) return;
+                                  setDialogState(() {
+                                    selectedMaid = found.first;
+                                  });
+                                },
                         ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<int>(
+                          initialValue: selectedTimeslot,
+                          decoration: const InputDecoration(labelText: '时段'),
+                          items: const [
+                            DropdownMenuItem<int>(value: 21, child: Text('21')),
+                            DropdownMenuItem<int>(value: 22, child: Text('22')),
+                          ],
+                          onChanged: submitting
+                              ? null
+                              : (value) {
+                                  if (value == null) return;
+                                  setDialogState(() {
+                                    selectedTimeslot = value;
+                                  });
+                                },
+                        ),
+                        const SizedBox(height: 12),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: autoqueue,
+                          onChanged: submitting
+                              ? null
+                              : (value) => setDialogState(() {
+                                    autoqueue = value;
+                                  }),
+                          title: const Text('自动排队'),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: withFriend,
+                          onChanged: submitting
+                              ? null
+                              : (value) => setDialogState(() {
+                                    withFriend = value;
+                                    if (!value) {
+                                      friendVrcidController.clear();
+                                    }
+                                  }),
+                          title: const Text('带朋友一起'),
+                        ),
+                        if (withFriend) ...[
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: friendVrcidController,
+                            enabled: !submitting,
+                            textInputAction: TextInputAction.done,
+                            decoration: const InputDecoration(
+                              labelText: '好友 VRCID',
+                              hintText: '请输入好友的 VRCID',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ],
+                        if (dialogError != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            dialogError!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: submitting ? null : () => Navigator.of(dialogContext).pop(),
-                  child: const Text('取消'),
-                ),
-                FilledButton(
-                  onPressed: submitting ? null : submit,
-                  child: submitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('提交'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+                actions: [
+                  TextButton(
+                    onPressed: submitting ? null : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    onPressed: submitting ? null : submit,
+                    child: submitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('提交'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      friendVrcidController.dispose();
+    }
   }
 
   Future<void> _maybeBootstrap({bool forceRefresh = false}) async {
@@ -976,6 +1167,24 @@ class _QueuePageState extends State<QueuePage> {
                   item.autoqueue ? '自动排队：开启' : '自动排队：关闭',
                   style: TextStyle(color: subColor),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  item.withFriend ? '携带好友：是' : '携带好友：否',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: subColor),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  item.withFriend
+                      ? (item.friendVrcid.isEmpty
+                          ? '好友 VRCID：未填写'
+                          : '好友 VRCID：${item.friendVrcid}')
+                      : '好友 VRCID：-',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: subColor),
+                ),
               ],
             ),
           ),
@@ -997,6 +1206,15 @@ class _QueuePageState extends State<QueuePage> {
                           )
                         : Icon(item.autoqueue ? Icons.toggle_on_rounded : Icons.toggle_off_outlined),
                     label: Text(item.autoqueue ? '关闭自动' : '开启自动'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: canMutate ? () => _editFriendInfo(item) : null,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('修改好友'),
                   ),
                 ),
                 const SizedBox(height: 8),

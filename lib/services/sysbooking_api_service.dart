@@ -11,6 +11,8 @@ class SysbookingQueueItem {
   const SysbookingQueueItem({
     required this.bookingId,
     required this.maidId,
+    required this.withFriend,
+    required this.friendVrcid,
     required this.timeslot,
     required this.queue,
     required this.autoqueue,
@@ -18,6 +20,8 @@ class SysbookingQueueItem {
 
   final String bookingId;
   final String maidId;
+  final bool withFriend;
+  final String friendVrcid;
   final int timeslot;
   final int queue;
   final bool autoqueue;
@@ -26,6 +30,8 @@ class SysbookingQueueItem {
     return SysbookingQueueItem(
       bookingId: (json['booking_id'] ?? '').toString().trim(),
       maidId: (json['maid_id'] ?? '').toString().trim(),
+      withFriend: json['with_friend'] == true,
+      friendVrcid: (json['friend_vrcid'] ?? '').toString().trim(),
       timeslot: json['timeslot'] is num
           ? (json['timeslot'] as num).toInt()
           : int.tryParse((json['timeslot'] ?? '').toString().trim()) ?? 0,
@@ -74,7 +80,7 @@ class SysbookingApiService {
     return {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      if (extra != null) ...extra,
+      ...?extra,
     };
   }
 
@@ -145,8 +151,9 @@ class SysbookingApiService {
     }
 
     try {
-      final currentToken = await FcmService.getCurrentToken()
-          .timeout(const Duration(seconds: 2));
+      final currentToken = await FcmService.getCurrentToken().timeout(
+        const Duration(seconds: 2),
+      );
       final normalizedCurrent = currentToken?.trim();
       if (normalizedCurrent == null || normalizedCurrent.isEmpty) {
         return null;
@@ -200,13 +207,39 @@ class SysbookingApiService {
     required String bookingId,
     required bool autoqueue,
   }) async {
+    await updateQueueBooking(
+      bookingToken: bookingToken,
+      bookingId: bookingId,
+      autoqueue: autoqueue,
+    );
+  }
+
+  static Future<void> updateQueueBooking({
+    required String bookingToken,
+    required String bookingId,
+    bool? autoqueue,
+    bool? withFriend,
+    String? friendVrcid,
+  }) async {
+    final payload = <String, dynamic>{'booking_id': bookingId.trim()};
+    if (autoqueue != null) {
+      payload['autoqueue'] = autoqueue;
+    }
+    if (withFriend != null) {
+      payload['with_friend'] = withFriend;
+    }
+    if (friendVrcid != null) {
+      payload['friend_vrcid'] = friendVrcid.trim();
+    }
+
+    if (payload.length == 1) {
+      throw const SysbookingApiException('未提供可修改的字段');
+    }
+
     final response = await http.put(
       _resolve('/sysbooking/booking'),
       headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
-      body: jsonEncode({
-        'booking_id': bookingId.trim(),
-        'autoqueue': autoqueue,
-      }),
+      body: jsonEncode(payload),
     );
 
     if (response.statusCode == 401) {
@@ -217,7 +250,7 @@ class SysbookingApiService {
     }
     if (response.statusCode != 200 && response.statusCode != 204) {
       throw SysbookingApiException(
-        _extractError(response.body, fallback: '切换自动排队失败'),
+        _extractError(response.body, fallback: '更新预约失败'),
         statusCode: response.statusCode,
       );
     }
@@ -230,9 +263,7 @@ class SysbookingApiService {
     final response = await http.delete(
       _resolve('/sysbooking/booking'),
       headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
-      body: jsonEncode({
-        'booking_id': bookingId.trim(),
-      }),
+      body: jsonEncode({'booking_id': bookingId.trim()}),
     );
 
     if (response.statusCode == 401) {
@@ -288,6 +319,7 @@ class SysbookingApiService {
     required int timeslot,
     required bool autoqueue,
     required bool withFriend,
+    required String friendVrcid,
   }) async {
     final response = await http.post(
       _resolve('/sysbooking/booking'),
@@ -297,6 +329,7 @@ class SysbookingApiService {
         'timeslot': timeslot,
         'autoqueue': autoqueue,
         'with_friend': withFriend,
+        'friend_vrcid': friendVrcid.trim(),
       }),
     );
 

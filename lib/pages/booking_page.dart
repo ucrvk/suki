@@ -231,10 +231,12 @@ class _BookingPageState extends State<BookingPage> {
   MaidStatus _statusForMaid(Map<String, dynamic> maid) {
     if (widget.forceAllBookableForTest) return MaidStatus.available;
     final disabled = maid['disabled'] == true;
-    if (!_bookingEnabled || disabled || _timeSlots.isEmpty)
+    if (!_bookingEnabled || disabled || _timeSlots.isEmpty) {
       return MaidStatus.closed;
-    if (_reservationCountForMaid(maid) >= _fullThreshold)
+    }
+    if (_reservationCountForMaid(maid) >= _fullThreshold) {
       return MaidStatus.full;
+    }
     return MaidStatus.available;
   }
 
