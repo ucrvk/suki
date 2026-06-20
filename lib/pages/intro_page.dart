@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -187,8 +188,6 @@ class IntroPageState extends State<IntroPage> {
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
     final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
     final bodyColor = isDark ? const Color(0xFFEDE5F3) : const Color(0xFF5E536C);
-    final mutedColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7D7178);
-    final statBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFF7ECF5);
     final actionBg = isDark ? const Color(0xFF2A2230) : const Color(0xFFF9EEF4);
 
     return Container(
@@ -209,23 +208,13 @@ class IntroPageState extends State<IntroPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                      record.username,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: titleColor,
-                      ),
-                    ),
-                    _buildStatPill('HP ${record.statHp}', statBg, mutedColor),
-                    _buildStatPill('ATK ${record.statAtk}', statBg, mutedColor),
-                    _buildStatPill('DEF ${record.statDef}', statBg, mutedColor),
-                  ],
+                Text(
+                  record.username,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: titleColor,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -340,6 +329,7 @@ class IntroPageState extends State<IntroPage> {
       record.extraImage1Url,
       record.extraImage2Url,
     }.where((url) => url.trim().isNotEmpty).toList();
+    final hasImages = imageUrls.isNotEmpty;
     final pageController = PageController(
       viewportFraction: imageUrls.length > 1 ? 0.92 : 1.0,
     );
@@ -369,59 +359,52 @@ class IntroPageState extends State<IntroPage> {
               }
 
               return SafeArea(
-                child: FractionallySizedBox(
-                  heightFactor: 0.92,
-                  child: Material(
-                    color: cardBg,
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isWide = constraints.maxWidth >= 920;
-                        final imagePane = _buildDetailImagePane(
-                          imageUrls: imageUrls,
-                          isDark: isDark,
-                          mutedColor: mutedColor,
-                          pageController: pageController,
-                          currentPage: currentPage,
-                          onPageChanged: (index) {
-                            setSheetState(() => currentPage = index);
-                          },
-                          onPrevious: currentPage > 0 ? () => goToPage(currentPage - 1) : null,
-                          onNext: currentPage < imageUrls.length - 1
-                              ? () => goToPage(currentPage + 1)
-                              : null,
-                        );
-                        final detailPane = _buildDetailTextPane(
-                          record: record,
-                          bodyColor: bodyColor,
-                          mutedColor: mutedColor,
-                          isDark: isDark,
-                        );
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final maxSheetHeight = constraints.maxHeight * (hasImages ? 0.9 : 0.78);
 
-                        if (isWide) {
-                          return Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(flex: 11, child: imagePane),
-                                const SizedBox(width: 16),
-                                Expanded(flex: 9, child: detailPane),
-                              ],
-                            ),
-                          );
-                        }
-
-                        return ListView(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                          children: [
-                            imagePane,
-                            const SizedBox(height: 14),
-                            detailPane,
-                          ],
-                        );
-                      },
-                    ),
-                  ),
+                    return ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: maxSheetHeight),
+                      child: Material(
+                        color: cardBg,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (hasImages)
+                                _buildDetailImagePane(
+                                  imageUrls: imageUrls,
+                                  isDark: isDark,
+                                  mutedColor: mutedColor,
+                                  pageController: pageController,
+                                  currentPage: currentPage,
+                                  onPageChanged: (index) {
+                                    setSheetState(() => currentPage = index);
+                                  },
+                                  onPrevious:
+                                      currentPage > 0 ? () => goToPage(currentPage - 1) : null,
+                                  onNext: currentPage < imageUrls.length - 1
+                                      ? () => goToPage(currentPage + 1)
+                                      : null,
+                                ),
+                              if (hasImages) const SizedBox(height: 14),
+                              _buildDetailTextPane(
+                                record: record,
+                                bodyColor: bodyColor,
+                                mutedColor: mutedColor,
+                                isDark: isDark,
+                                maxBodyHeight: hasImages
+                                    ? (maxSheetHeight * 0.42).clamp(120.0, maxSheetHeight)
+                                    : (maxSheetHeight * 0.55).clamp(120.0, maxSheetHeight),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               );
             },
@@ -546,42 +529,62 @@ class IntroPageState extends State<IntroPage> {
     required Color bodyColor,
     required Color mutedColor,
     required bool isDark,
+    required double maxBodyHeight,
   }) {
     final statBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFF7ECF5);
+    final bioText = record.fullBio.isEmpty ? '暂无详细介绍' : record.fullBio;
 
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            record.username,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: Theme.of(context).colorScheme.onSurface,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bioStyle = TextStyle(
+          fontSize: 15,
+          height: 1.55,
+          color: bodyColor,
+        );
+        final bioPainter = TextPainter(
+          text: TextSpan(text: bioText, style: bioStyle),
+          textDirection: Directionality.of(context),
+          maxLines: null,
+        )..layout(maxWidth: constraints.maxWidth);
+        final bodyHeight = math.min(bioPainter.height, maxBodyHeight);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              record.username,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildStatPill('HP ${record.statHp}', statBg, mutedColor),
-              _buildStatPill('ATK ${record.statAtk}', statBg, mutedColor),
-              _buildStatPill('DEF ${record.statDef}', statBg, mutedColor),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            record.fullBio.isEmpty ? '暂无详细介绍' : record.fullBio,
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.55,
-              color: bodyColor,
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildStatPill('HP ${record.statHp}', statBg, mutedColor),
+                _buildStatPill('ATK ${record.statAtk}', statBg, mutedColor),
+                _buildStatPill('DEF ${record.statDef}', statBg, mutedColor),
+              ],
             ),
-          ),
-        ],
-      ),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: bodyHeight,
+              child: SingleChildScrollView(
+                primary: false,
+                physics: const ClampingScrollPhysics(),
+                child: Text(
+                  bioText,
+                  style: bioStyle,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

@@ -256,6 +256,28 @@ class SysbookingApiService {
     }
   }
 
+  static Future<void> logoutOtherQueueAccounts({
+    required String bookingToken,
+  }) async {
+    final response = await http.get(
+      _resolve('/sysbooking/logout'),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+    );
+
+    if (response.statusCode == 401) {
+      throw SysbookingUnauthorizedException(
+        _extractError(response.body, fallback: '登录已失效，请重新登录'),
+        statusCode: response.statusCode,
+      );
+    }
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw SysbookingApiException(
+        _extractError(response.body, fallback: '登出其他预约系统账户失败'),
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
   static Future<void> deleteQueueBooking({
     required String bookingToken,
     required String bookingId,

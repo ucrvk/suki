@@ -136,16 +136,23 @@ class _MePageState extends State<MePage> {
     final notificationEnabled = prefs.getBool(_notificationEnabledKey) ?? false;
     final bookingOpenEnabled = prefs.getBool(_bookingOpenEnabledKey) ?? false;
     final normalizedBookingOpenEnabled = notificationEnabled ? bookingOpenEnabled : false;
+    final queueNotificationEnabled = prefs.getBool(_queueNotificationEnabledKey) ?? false;
+    final normalizedQueueNotificationEnabled = notificationEnabled ? queueNotificationEnabled : false;
 
     if (!mounted) return;
     setState(() {
       _notificationEnabled = notificationEnabled;
       _bookingOpenEnabled = normalizedBookingOpenEnabled;
+      _queueNotificationEnabled = normalizedQueueNotificationEnabled;
       _notificationLoading = false;
     });
 
     if (!notificationEnabled && bookingOpenEnabled) {
       await prefs.setBool(_bookingOpenEnabledKey, false);
+    }
+
+    if (!notificationEnabled && queueNotificationEnabled) {
+      await prefs.setBool(_queueNotificationEnabledKey, false);
     }
 
     if (notificationEnabled && normalizedBookingOpenEnabled) {
@@ -157,6 +164,12 @@ class _MePageState extends State<MePage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_notificationEnabledKey, _notificationEnabled);
     await prefs.setBool(_bookingOpenEnabledKey, _bookingOpenEnabled);
+    if (!_notificationEnabled) {
+      await prefs.setBool(_queueNotificationEnabledKey, false);
+      setState(() {
+        _queueNotificationEnabled = false;
+      });
+    }
   }
 
   Future<String?> _resolveQueueNotificationFcmToken({
@@ -381,6 +394,7 @@ class _MePageState extends State<MePage> {
           setState(() {
             _notificationEnabled = false;
             _bookingOpenEnabled = false;
+            _queueNotificationEnabled = false;
           });
           await _saveNotificationSettings();
           await FcmService.setBookingOpenTopicEnabled(false);
@@ -393,6 +407,7 @@ class _MePageState extends State<MePage> {
           setState(() {
             _notificationEnabled = false;
             _bookingOpenEnabled = false;
+            _queueNotificationEnabled = false;
           });
           await _saveNotificationSettings();
         } catch (e) {
@@ -835,6 +850,25 @@ class _MePageState extends State<MePage> {
                   ? null
                   : _setBookingOpenEnabled,
             ),
+              if (QueueTabSettings.enabledNotifier.value)
+                SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  title: const Text('排队通知'),
+                  subtitle: Text(
+                    _queueNotificationLoading
+                        ? '正在恢复排队通知状态'
+                        : !_notificationEnabled
+                            ? '请先打开通知总开关'
+                        : _queueNotificationEnabled
+                            ? '已同步排队相关通知'
+                            : '开启后会先发送当前设备的 FCM token',
+                    style: TextStyle(color: subColor),
+                  ),
+                  value: _queueNotificationEnabled,
+                  onChanged: (_queueNotificationLoading || _queueNotificationSubmitting || !_notificationEnabled)
+                      ? null
+                      : (enabled) => unawaited(_setQueueNotificationEnabled(enabled)),
+                ),
             const SizedBox(height: 8),
           ],
         ],
@@ -868,25 +902,6 @@ class _MePageState extends State<MePage> {
             ),
             value: QueueTabSettings.enabledNotifier.value,
             onChanged: _notificationSubmitting ? null : (enabled) => unawaited(QueueTabSettings.setEnabled(enabled)),
-          ),
-          SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-            title: Text(
-              '排队通知',
-              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
-            ),
-            subtitle: Text(
-              _queueNotificationLoading
-                  ? '正在恢复排队通知状态'
-                  : _queueNotificationEnabled
-                      ? '已同步排队相关通知'
-                      : '开启后会先发送当前设备的 FCM token',
-              style: TextStyle(color: subColor),
-            ),
-            value: _queueNotificationEnabled,
-            onChanged: (_queueNotificationLoading || _queueNotificationSubmitting)
-                ? null
-                : (enabled) => unawaited(_setQueueNotificationEnabled(enabled)),
           ),
           const SizedBox(height: 8),
         ],

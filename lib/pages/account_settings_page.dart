@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/sysbooking_api_service.dart';
+import '../services/sysbooking_session_store.dart';
+import '../services/queue_tab_settings.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
 
@@ -21,6 +24,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   bool _profileLoading = true;
   bool _profileSubmitting = false;
   bool _passwordSubmitting = false;
+  bool _sysbookingSubmitting = false;
 
   @override
   void initState() {
@@ -162,13 +166,22 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
       appBar: const MainAppBar(
         title: Text('账户设置'),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildProfileSection(),
-          const SizedBox(height: 12),
-          _buildPasswordSection(),
-        ],
+      body: ValueListenableBuilder<bool>(
+        valueListenable: QueueTabSettings.enabledNotifier,
+        builder: (context, queueEnabled, child) {
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _buildProfileSection(),
+              const SizedBox(height: 12),
+              _buildPasswordSection(),
+              if (queueEnabled) ...[
+                const SizedBox(height: 12),
+                _buildSysbookingSection(),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -307,6 +320,90 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Text('确认修改'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _logoutOtherSysbookingAccounts() async {
+    if (_sysbookingSubmitting) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final bookingToken = await SysbookingSessionStore.loadBookingToken();
+    if (bookingToken == null) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('请先到排队页登录预约系统后再使用此功能')),
+      );
+      return;
+    }
+
+    setState(() => _sysbookingSubmitting = true);
+
+    try {
+      await SysbookingApiService.logoutOtherQueueAccounts(
+        bookingToken: bookingToken,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('已登出其他预约系统账户')),
+      );
+    } on SysbookingUnauthorizedException catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) {
+        setState(() => _sysbookingSubmitting = false);
+      } else {
+        _sysbookingSubmitting = false;
+      }
+    }
+  }
+
+  Widget _buildSysbookingSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
+    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.verified_user_outlined),
+            title: Text(
+              '预约系统',
+              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
+            ),
+            subtitle: Text(
+              '清除除当前账号外的其他预约系统登录态',
+              style: TextStyle(color: subColor),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonalIcon(
+                onPressed: _sysbookingSubmitting ? null : _logoutOtherSysbookingAccounts,
+                icon: _sysbookingSubmitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.logout),
+                label: const Text('登出其他账户'),
               ),
             ),
           ),
