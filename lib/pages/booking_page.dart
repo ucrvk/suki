@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_shell.dart';
 import '../services/booking_service.dart';
@@ -61,7 +62,9 @@ class _BookingPageState extends State<BookingPage> {
   void initState() {
     super.initState();
     _currentUser = SupabaseService.client.auth.currentUser;
-    _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((event) {
+    _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((
+      event,
+    ) {
       if (!mounted) return;
       setState(() {
         _currentUser = event.session?.user;
@@ -69,7 +72,7 @@ class _BookingPageState extends State<BookingPage> {
     });
     _tabReselectListener = () {
       final event = AppShell.tabReselectNotifier.value;
-      if (event == null || event.index != 0) return;
+      if (event == null || event.index != AppShell.bookingTabIndex()) return;
       _handleTabReselect(event.action);
     };
     AppShell.tabReselectNotifier.addListener(_tabReselectListener);
@@ -132,32 +135,74 @@ class _BookingPageState extends State<BookingPage> {
   }
 
   Future<void> _fetchMaids({bool forceRefresh = false}) async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (!mounted) return;
 
     try {
-      final snapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
+      if (!forceRefresh) {
+        final cached = await MaidCatalogCacheService.loadCachedSnapshot();
+        if (cached != null) {
+          if (!mounted) return;
+          _applySnapshot(cached);
+          setState(() {
+            _loading = false;
+            _error = null;
+          });
+          unawaited(_refreshMaidsInBackground());
+          return;
+        }
+      }
 
       setState(() {
-        _maids = snapshot.maids;
-        _reservations = snapshot.reservations;
-        _bookingEnabled = snapshot.bookingEnabled;
-        _hiddenMaidVrcids = snapshot.hiddenMaidVrcids;
-        _timeSlots = snapshot.timeSlots;
-        _bookedSlotKeys = snapshot.reservations
-            .map((e) => Map<String, dynamic>.from(e))
-            .where((a) => (a['maidVrcid'] ?? '').toString().trim().isNotEmpty && (a['timeSlot'] ?? '').toString().trim().isNotEmpty)
-            .map((a) => '${(a['maidVrcid'] ?? '').toString().trim()}|${(a['timeSlot'] ?? '').toString().trim()}')
-            .toSet();
+        _loading = true;
+        _error = null;
+      });
+
+      final snapshot = forceRefresh
+          ? await MaidCatalogCacheService.refreshSnapshot()
+          : await MaidCatalogCacheService.getSnapshot(forceRefresh: true);
+      if (!mounted) return;
+      _applySnapshot(snapshot);
+      setState(() {
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  void _applySnapshot(MaidCatalogSnapshot snapshot) {
+    _maids = snapshot.maids;
+    _reservations = snapshot.reservations;
+    _bookingEnabled = snapshot.bookingEnabled;
+    _hiddenMaidVrcids = snapshot.hiddenMaidVrcids;
+    _timeSlots = snapshot.timeSlots;
+    _bookedSlotKeys = snapshot.reservations
+        .map((e) => Map<String, dynamic>.from(e))
+        .where(
+          (a) =>
+              (a['maidVrcid'] ?? '').toString().trim().isNotEmpty &&
+              (a['timeSlot'] ?? '').toString().trim().isNotEmpty,
+        )
+        .map(
+          (a) =>
+              '${(a['maidVrcid'] ?? '').toString().trim()}|${(a['timeSlot'] ?? '').toString().trim()}',
+        )
+        .toSet();
+  }
+
+  Future<void> _refreshMaidsInBackground() async {
+    try {
+      final snapshot = await MaidCatalogCacheService.refreshSnapshot();
+      if (!mounted) return;
+      setState(() {
+        _applySnapshot(snapshot);
+      });
+    } catch (_) {
+      // Keep the cached state if refresh fails.
     }
   }
 
@@ -186,8 +231,12 @@ class _BookingPageState extends State<BookingPage> {
   MaidStatus _statusForMaid(Map<String, dynamic> maid) {
     if (widget.forceAllBookableForTest) return MaidStatus.available;
     final disabled = maid['disabled'] == true;
-    if (!_bookingEnabled || disabled || _timeSlots.isEmpty) return MaidStatus.closed;
-    if (_reservationCountForMaid(maid) >= _fullThreshold) return MaidStatus.full;
+    if (!_bookingEnabled || disabled || _timeSlots.isEmpty) {
+      return MaidStatus.closed;
+    }
+    if (_reservationCountForMaid(maid) >= _fullThreshold) {
+      return MaidStatus.full;
+    }
     return MaidStatus.available;
   }
 
@@ -220,7 +269,9 @@ class _BookingPageState extends State<BookingPage> {
     }
     items.sort((a, b) {
       if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
-      final statusCompare = _statusPriority(a.status).compareTo(_statusPriority(b.status));
+      final statusCompare = _statusPriority(
+        a.status,
+      ).compareTo(_statusPriority(b.status));
       if (statusCompare != 0) return statusCompare;
       return a.originalIndex.compareTo(b.originalIndex);
     });
@@ -234,7 +285,9 @@ class _BookingPageState extends State<BookingPage> {
     final name = (maid['name'] ?? '').toString().trim();
     if (name == '鱼七') return true;
 
-    final tags = (maid['tags'] as List?)?.map((e) => e.toString()).toList() ?? const <String>[];
+    final tags =
+        (maid['tags'] as List?)?.map((e) => e.toString()).toList() ??
+        const <String>[];
     return tags.any((tag) => tag.contains('前台'));
   }
 
@@ -246,7 +299,9 @@ class _BookingPageState extends State<BookingPage> {
       final name = (maid['name'] ?? '').toString().toLowerCase();
       final vrcid = (maid['vrcid'] ?? '').toString().toLowerCase();
       final signature = (maid['signature'] ?? '').toString().toLowerCase();
-      final tags = (maid['tags'] as List?)?.map((e) => e.toString().toLowerCase()) ?? const [];
+      final tags =
+          (maid['tags'] as List?)?.map((e) => e.toString().toLowerCase()) ??
+          const [];
       return name.contains(keyword) ||
           vrcid.contains(keyword) ||
           signature.contains(keyword) ||
@@ -268,7 +323,7 @@ class _BookingPageState extends State<BookingPage> {
           content: const Text('请先登录后再预约'),
           action: SnackBarAction(
             label: '去登录',
-            onPressed: () => AppShell.switchToTab(3),
+            onPressed: () => AppShell.switchToTab(AppShell.meTabIndex()),
           ),
         ),
       );
@@ -276,7 +331,9 @@ class _BookingPageState extends State<BookingPage> {
     }
 
     if (_timeSlots.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('今日未配置排班时段')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('今日未配置排班时段')));
       return;
     }
 
@@ -292,14 +349,15 @@ class _BookingPageState extends State<BookingPage> {
         )
         .toList();
     if (availableSlots.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('该女仆可选时段已满，或你在该时段已有预约')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('该女仆可选时段已满，或你在该时段已有预约')));
       return;
     }
 
     String selectedSlot = availableSlots.first;
     bool withFriend = false;
+    final friendVrcidController = TextEditingController();
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
@@ -315,52 +373,79 @@ class _BookingPageState extends State<BookingPage> {
                   children: [
                     Text(
                       '确认预约',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Text('女仆：${(item.maid['name'] ?? '未命名').toString()}'),
                     const SizedBox(height: 10),
-                    const Text('选择时段', style: TextStyle(fontWeight: FontWeight.w700)),
+                    const Text(
+                      '选择时段',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
-                      children: _timeSlots
-                          .map(
-                            (slot) {
-                              final booked = _bookedSlotKeys.contains('$maidVrcid|$slot');
-                              final alreadyBookedByMe = myBookedSlots.contains(slot);
-                              final disabled = booked || alreadyBookedByMe;
-                              return ChoiceChip(
-                                label: Text(
-                                  booked
-                                      ? '$slot（已约）'
-                                      : alreadyBookedByMe
-                                          ? '$slot（你已约）'
-                                          : slot,
-                                ),
-                                selected: selectedSlot == slot,
-                                onSelected: disabled
-                                    ? null
-                                    : (_) {
-                                        setSheetState(() => selectedSlot = slot);
-                                      },
-                              );
-                            },
-                          )
-                          .toList(),
+                      children: _timeSlots.map((slot) {
+                        final booked = _bookedSlotKeys.contains(
+                          '$maidVrcid|$slot',
+                        );
+                        final alreadyBookedByMe = myBookedSlots.contains(slot);
+                        final disabled = booked || alreadyBookedByMe;
+                        return ChoiceChip(
+                          label: Text(
+                            booked
+                                ? '$slot（已约）'
+                                : alreadyBookedByMe
+                                ? '$slot（你已约）'
+                                : slot,
+                          ),
+                          selected: selectedSlot == slot,
+                          onSelected: disabled
+                              ? null
+                              : (_) {
+                                  setSheetState(() => selectedSlot = slot);
+                                },
+                        );
+                      }).toList(),
                     ),
                     const SizedBox(height: 8),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       value: withFriend,
-                      onChanged: (value) => setSheetState(() => withFriend = value),
+                      onChanged: (value) {
+                        setSheetState(() {
+                          withFriend = value;
+                        });
+                      },
                       title: const Text('是否带朋友'),
                     ),
+                    if (withFriend) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: friendVrcidController,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: '好友 VRCID',
+                          hintText: '请输入好友的 VRCID',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: () => Navigator.of(sheetContext).pop(true),
+                        onPressed: () {
+                          if (withFriend && friendVrcidController.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('请先填写好友 VRCID')),
+                            );
+                            return;
+                          }
+                          Navigator.of(sheetContext).pop(true);
+                        },
                         child: const Text('确认预约'),
                       ),
                     ),
@@ -385,9 +470,12 @@ class _BookingPageState extends State<BookingPage> {
         maid: item.maid,
         timeSlot: selectedSlot,
         withFriend: withFriend,
+        friendVrcid: friendVrcidController.text,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('预约成功')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('预约成功')));
       MaidCatalogCacheService.invalidate();
       await _fetchMaids(forceRefresh: true);
     } catch (e) {
@@ -409,7 +497,11 @@ class _BookingPageState extends State<BookingPage> {
     if (userId.isEmpty) return const <String>{};
     return _reservations
         .map((e) => Map<String, dynamic>.from(e))
-        .where((a) => (a['guestUserId'] ?? '').toString().trim() == userId && (a['timeSlot'] ?? '').toString().trim().isNotEmpty)
+        .where(
+          (a) =>
+              (a['guestUserId'] ?? '').toString().trim() == userId &&
+              (a['timeSlot'] ?? '').toString().trim().isNotEmpty,
+        )
         .map((a) => (a['timeSlot'] ?? '').toString().trim())
         .toSet();
   }
@@ -418,7 +510,9 @@ class _BookingPageState extends State<BookingPage> {
   Widget build(BuildContext context) {
     final visibleMaids = _buildSortedMaids();
     final totalCount = visibleMaids.length;
-    final availableCount = visibleMaids.where((item) => item.status == MaidStatus.available).length;
+    final availableCount = visibleMaids
+        .where((item) => item.status == MaidStatus.available)
+        .length;
 
     return Scaffold(
       appBar: MainAppBar(
@@ -436,12 +530,27 @@ class _BookingPageState extends State<BookingPage> {
             ),
           ],
         ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton(
+              onPressed: () async {
+                final uri = Uri.parse('https://vrcsuki.chat/catking');
+                await launchUrl(uri, mode: LaunchMode.inAppWebView);
+              },
+              child: const Text('猫王争霸'),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: _loading || _error != null
           ? null
           : FloatingActionButton(
               onPressed: () {
-                final visibleMaids = _buildSortedMaids().where((item) => !_shouldHideMaid(item.maid)).map((item) => item.maid).toList();
+                final visibleMaids = _buildSortedMaids()
+                    .where((item) => !_shouldHideMaid(item.maid))
+                    .map((item) => item.maid)
+                    .toList();
                 showRandomMaidDialog(context, visibleMaids);
               },
               tooltip: '随机女仆',
@@ -517,7 +626,10 @@ class _BookingPageState extends State<BookingPage> {
                                   icon: const Icon(Icons.clear),
                                 ),
                           filled: true,
-                          fillColor: Colors.white,
+                          fillColor:
+                              Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xFF1E1E1E)
+                              : Colors.white,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: BorderSide.none,
@@ -529,7 +641,10 @@ class _BookingPageState extends State<BookingPage> {
                         Container(
                           width: double.infinity,
                           margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFFFEAF4),
                             borderRadius: BorderRadius.circular(12),
@@ -547,7 +662,10 @@ class _BookingPageState extends State<BookingPage> {
                         Container(
                           width: double.infinity,
                           margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFFFEAF4),
                             borderRadius: BorderRadius.circular(12),
@@ -571,7 +689,9 @@ class _BookingPageState extends State<BookingPage> {
                   child: LayoutBuilder(
                     builder: (context, innerConstraints) {
                       const spacing = 14.0;
-                      final itemWidth = (innerConstraints.maxWidth - spacing * (count - 1)) / count;
+                      final itemWidth =
+                          (innerConstraints.maxWidth - spacing * (count - 1)) /
+                          count;
 
                       return Wrap(
                         spacing: spacing,
@@ -584,7 +704,8 @@ class _BookingPageState extends State<BookingPage> {
                                 maid: item.maid,
                                 status: item.status,
                                 isFavorite: item.isFavorite,
-                                onToggleFavorite: () => _toggleFavorite(item.uniqueId),
+                                onToggleFavorite: () =>
+                                    _toggleFavorite(item.uniqueId),
                                 onBook: () => _onBookTap(item: item),
                                 submitting: _isSubmittingAnySlot(item.uniqueId),
                               ),

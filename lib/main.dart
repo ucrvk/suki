@@ -8,6 +8,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_shell.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';
+import 'services/maid_content_cache_store.dart';
+import 'services/queue_tab_settings.dart';
 import 'services/supabase_service.dart';
 
 Future<void> main() async {
@@ -26,6 +28,8 @@ Future<void> main() async {
       'User-Agent': userAgent,
     },
   );
+  await MaidContentCacheStore.ensureInitialized();
+  await QueueTabSettings.load();
   runApp(const MainApp());
   unawaited(FcmService.initialize());
 }

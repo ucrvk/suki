@@ -40,6 +40,21 @@ class GuestbookEntry {
     );
   }
 
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'user_id': userId,
+      'username': username,
+      'avatar_url': avatarUrl,
+      'content': content,
+      'likes': likes,
+      'approved': approved,
+      'created_at': createdAt.millisecondsSinceEpoch ~/ 1000,
+      'updated_at': updatedAt.millisecondsSinceEpoch ~/ 1000,
+      'pinned': pinned,
+    };
+  }
+
   static DateTime _parseTimestamp(dynamic value) {
     if (value is num) {
       // Supabase returns unix timestamps as double
