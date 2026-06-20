@@ -8,7 +8,7 @@ import 'maid_content_cache_store.dart';
 class MaidImageManifestService {
   MaidImageManifestService._();
 
-  static const String baseUrl = 'http://127.0.0.1:6988/';
+  static const String baseUrl = 'https://api.wenwen12305.top/suki/';
   static const String _manifestPath = 'manifest.json';
   static const String _imagesPath = 'images';
   static const String _cacheKey = 'maid_image_manifest';
