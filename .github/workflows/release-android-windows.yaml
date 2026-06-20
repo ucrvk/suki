@@ -1,0 +1,191 @@
+name: Publish Android ARM64 and Windows Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - pubspec.yaml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prev_tag: ${{ steps.prev_tag.outputs.prev_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from pubspec.yaml
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          TAG=$(echo "$VERSION" | cut -d'+' -f1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Find previous tag
+        id: prev_tag
+        shell: bash
+        run: |
+          git fetch --tags
+          PREV_TAG=$(git tag --sort=-version:refname | grep '^v[0-9]' | grep -vx "${{ steps.version.outputs.tag }}" | head -n 1 || true)
+          echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+
+  build-android:
+    needs: prepare
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Decode keystore
+        shell: bash
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+
+      - name: Create key.properties
+        shell: bash
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          keyAlias=${{ vars.ANDROID_KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Build signed APK (arm64)
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Rename APK
+        shell: bash
+        run: |
+          TAG=${{ needs.prepare.outputs.tag }}
+          mv build/app/outputs/flutter-apk/app-release.apk \
+            build/app/outputs/flutter-apk/suki_${TAG}_arm64.apk
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/suki_${{ needs.prepare.outputs.tag }}_arm64.apk
+          if-no-files-found: error
+
+  build-windows:
+    needs: prepare
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows release
+        shell: pwsh
+        run: |
+          flutter build windows --release
+
+      - name: Package Windows release
+        shell: pwsh
+        run: |
+          $tag = "${{ needs.prepare.outputs.tag }}"
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE "build/windows/x64/runner/Release"
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE "build/windows/suki_${tag}_windows_x64.zip"
+          New-Item -ItemType Directory -Force -Path (Split-Path $zipPath) | Out-Null
+          if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
+          }
+          Compress-Archive -Path $releaseDir -DestinationPath $zipPath -CompressionLevel Optimal
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: build/windows/suki_${{ needs.prepare.outputs.tag }}_windows_x64.zip
+          if-no-files-found: error
+
+  release:
+    needs:
+      - prepare
+      - build-android
+      - build-windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Android artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: release-assets/android
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-zip
+          path: release-assets/windows
+
+      - name: Create release notes
+        shell: bash
+        run: |
+          if [ -n "${{ needs.prepare.outputs.prev_tag }}" ]; then
+            cat > release_notes.md <<EOF
+          Auto build from main branch because pubspec.yaml changed.
+
+          [Full Changelog](https://github.com/${{ github.repository }}/compare/${{ needs.prepare.outputs.prev_tag }}...${{ needs.prepare.outputs.tag }})
+          EOF
+          else
+            cat > release_notes.md <<EOF
+          Auto build from main branch because pubspec.yaml changed.
+          EOF
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ needs.prepare.outputs.tag }}
+          gh release create "${TAG}" \
+            release-assets/android/suki_${TAG}_arm64.apk \
+            release-assets/windows/suki_${TAG}_windows_x64.zip \
+            --target main \
+            --title "${TAG}" \
+            --notes-file release_notes.md \
+            --latest
