@@ -8,6 +8,13 @@ import '../app_shell.dart';
 import '../services/intro_profile_service.dart';
 import '../widgets/main_app_bar.dart';
 
+class _DetailImageDisplaySpec {
+  const _DetailImageDisplaySpec({required this.imageUrl, required this.fit});
+
+  final String imageUrl;
+  final BoxFit fit;
+}
+
 class IntroPage extends StatefulWidget {
   const IntroPage({super.key, this.embedded = false});
 
@@ -18,6 +25,16 @@ class IntroPage extends StatefulWidget {
 }
 
 class IntroPageState extends State<IntroPage> {
+  static const double _defaultDetailImageAspectRatio = 3 / 4;
+  static const double _detailImageMismatchThreshold = 0.12;
+  static const double _minDetailTextHeight = 120;
+  static const double _minDetailImageHeight = 160;
+  static const double _detailImageMaxHeightFactor = 0.58;
+  static const double _detailSheetHorizontalPadding = 16;
+  static const double _detailSheetVerticalPadding = 28;
+  static const double _detailImageTextGap = 14;
+  static const double _detailImageIndicatorHeight = 28;
+
   bool _loading = true;
   String? _error;
   List<IntroProfileRecord> _records = const [];
@@ -186,8 +203,12 @@ class IntroPageState extends State<IntroPage> {
   Widget _buildProfileCard(IntroProfileRecord record) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
-    final bodyColor = isDark ? const Color(0xFFEDE5F3) : const Color(0xFF5E536C);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
+    final bodyColor = isDark
+        ? const Color(0xFFEDE5F3)
+        : const Color(0xFF5E536C);
     final actionBg = isDark ? const Color(0xFF2A2230) : const Color(0xFFF9EEF4);
 
     return Container(
@@ -238,7 +259,10 @@ class IntroPageState extends State<IntroPage> {
               style: FilledButton.styleFrom(
                 backgroundColor: actionBg,
                 foregroundColor: titleColor,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 12,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
@@ -286,7 +310,9 @@ class IntroPageState extends State<IntroPage> {
 
   Widget _buildAvatar(String avatarUrl) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fallbackBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFF4E5EF);
+    final fallbackBg = isDark
+        ? const Color(0xFF2B2530)
+        : const Color(0xFFF4E5EF);
     return SizedBox(
       width: 84,
       height: 84,
@@ -296,10 +322,7 @@ class IntroPageState extends State<IntroPage> {
           color: fallbackBg,
           child: avatarUrl.isEmpty
               ? const Center(
-                  child: Icon(
-                    Icons.person_outline,
-                    color: Color(0xFF8B8399),
-                  ),
+                  child: Icon(Icons.person_outline, color: Color(0xFF8B8399)),
                 )
               : CachedNetworkImage(
                   imageUrl: avatarUrl,
@@ -330,6 +353,17 @@ class IntroPageState extends State<IntroPage> {
       record.extraImage2Url,
     }.where((url) => url.trim().isNotEmpty).toList();
     final hasImages = imageUrls.isNotEmpty;
+    final mainImageAspectRatio = hasImages
+        ? await _resolveImageAspectRatio(imageUrls.first) ??
+              _defaultDetailImageAspectRatio
+        : _defaultDetailImageAspectRatio;
+    final detailImageSpecs = hasImages
+        ? await _buildDetailImageSpecs(
+            imageUrls: imageUrls,
+            mainImageAspectRatio: mainImageAspectRatio,
+          )
+        : const <_DetailImageDisplaySpec>[];
+    if (!mounted) return;
     final pageController = PageController(
       viewportFraction: imageUrls.length > 1 ? 0.92 : 1.0,
     );
@@ -343,8 +377,12 @@ class IntroPageState extends State<IntroPage> {
         builder: (sheetContext) {
           final isDark = Theme.of(sheetContext).brightness == Brightness.dark;
           final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-          final bodyColor = isDark ? const Color(0xFFEDE5F3) : const Color(0xFF5E536C);
-          final mutedColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7D7178);
+          final bodyColor = isDark
+              ? const Color(0xFFEDE5F3)
+              : const Color(0xFF5E536C);
+          final mutedColor = isDark
+              ? const Color(0xFFB6AABF)
+              : const Color(0xFF7D7178);
 
           return StatefulBuilder(
             builder: (context, setSheetState) {
@@ -361,7 +399,50 @@ class IntroPageState extends State<IntroPage> {
               return SafeArea(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final maxSheetHeight = constraints.maxHeight * (hasImages ? 0.9 : 0.78);
+                    final maxSheetHeight =
+                        constraints.maxHeight * (hasImages ? 0.9 : 0.78);
+                    final contentMaxHeight = math.max(
+                      0.0,
+                      maxSheetHeight - _detailSheetVerticalPadding,
+                    );
+                    final contentWidth = math.max(
+                      0.0,
+                      constraints.maxWidth -
+                          (_detailSheetHorizontalPadding * 2),
+                    );
+                    final hasMultipleImages = detailImageSpecs.length > 1;
+                    final indicatorHeight = hasMultipleImages
+                        ? _detailImageIndicatorHeight
+                        : 0.0;
+                    final maxImageHeightByScreen =
+                        maxSheetHeight * _detailImageMaxHeightFactor;
+                    final maxImageHeightByLayout = math.max(
+                      _minDetailImageHeight,
+                      contentMaxHeight -
+                          _minDetailTextHeight -
+                          _detailImageTextGap -
+                          indicatorHeight,
+                    );
+                    final imageHeight = hasImages
+                        ? math.min(
+                            contentWidth / mainImageAspectRatio,
+                            math.min(
+                              maxImageHeightByScreen,
+                              maxImageHeightByLayout,
+                            ),
+                          )
+                        : 0.0;
+                    final imageSectionHeight = hasImages
+                        ? imageHeight + indicatorHeight
+                        : 0.0;
+                    final remainingBodyHeight = hasImages
+                        ? math.max(
+                            _minDetailTextHeight,
+                            contentMaxHeight -
+                                imageSectionHeight -
+                                _detailImageTextGap,
+                          )
+                        : math.max(_minDetailTextHeight, contentMaxHeight);
 
                     return ConstrainedBox(
                       constraints: BoxConstraints(maxHeight: maxSheetHeight),
@@ -375,16 +456,18 @@ class IntroPageState extends State<IntroPage> {
                             children: [
                               if (hasImages)
                                 _buildDetailImagePane(
-                                  imageUrls: imageUrls,
+                                  imageSpecs: detailImageSpecs,
                                   isDark: isDark,
                                   mutedColor: mutedColor,
                                   pageController: pageController,
                                   currentPage: currentPage,
+                                  imageHeight: imageHeight,
                                   onPageChanged: (index) {
                                     setSheetState(() => currentPage = index);
                                   },
-                                  onPrevious:
-                                      currentPage > 0 ? () => goToPage(currentPage - 1) : null,
+                                  onPrevious: currentPage > 0
+                                      ? () => goToPage(currentPage - 1)
+                                      : null,
                                   onNext: currentPage < imageUrls.length - 1
                                       ? () => goToPage(currentPage + 1)
                                       : null,
@@ -395,9 +478,7 @@ class IntroPageState extends State<IntroPage> {
                                 bodyColor: bodyColor,
                                 mutedColor: mutedColor,
                                 isDark: isDark,
-                                maxBodyHeight: hasImages
-                                    ? (maxSheetHeight * 0.42).clamp(120.0, maxSheetHeight)
-                                    : (maxSheetHeight * 0.55).clamp(120.0, maxSheetHeight),
+                                maxBodyHeight: remainingBodyHeight,
                               ),
                             ],
                           ),
@@ -419,59 +500,70 @@ class IntroPageState extends State<IntroPage> {
   Widget _buildDetailImageCard({
     required String imageUrl,
     required bool isDark,
+    required BoxFit fit,
   }) {
+    final imageBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFF4E5EF);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
-      child: CachedNetworkImage(
-        imageUrl: imageUrl,
-        fit: BoxFit.cover,
-        placeholder: (context, url) => const Center(
-          child: SizedBox(
-            width: 24,
-            height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2),
+      child: ColoredBox(
+        color: imageBg,
+        child: CachedNetworkImage(
+          imageUrl: imageUrl,
+          fit: fit,
+          alignment: Alignment.center,
+          placeholder: (context, url) => const Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           ),
+          errorWidget: (context, url, error) =>
+              _buildDetailImageFallback(isDark),
         ),
-        errorWidget: (context, url, error) => _buildDetailImageFallback(isDark),
       ),
     );
   }
 
   Widget _buildDetailImagePane({
-    required List<String> imageUrls,
+    required List<_DetailImageDisplaySpec> imageSpecs,
     required bool isDark,
     required Color mutedColor,
     required PageController pageController,
     required int currentPage,
+    required double imageHeight,
     required ValueChanged<int> onPageChanged,
     required VoidCallback? onPrevious,
     required VoidCallback? onNext,
   }) {
-    final hasMultipleImages = imageUrls.length > 1;
+    final hasMultipleImages = imageSpecs.length > 1;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        AspectRatio(
-          aspectRatio: 16 / 9,
+        SizedBox(
+          height: imageHeight,
           child: Stack(
             children: [
-              if (imageUrls.isEmpty)
+              if (imageSpecs.isEmpty)
                 _buildDetailImageFallback(isDark)
               else
                 PageView.builder(
                   controller: pageController,
                   padEnds: false,
                   onPageChanged: onPageChanged,
-                  itemCount: imageUrls.length,
+                  itemCount: imageSpecs.length,
                   itemBuilder: (context, index) {
+                    final spec = imageSpecs[index];
                     return Padding(
                       padding: EdgeInsets.only(
-                        right: index == imageUrls.length - 1 ? 0 : 10,
+                        right: index == imageSpecs.length - 1 ? 0 : 10,
                       ),
                       child: _buildDetailImageCard(
-                        imageUrl: imageUrls[index],
+                        imageUrl: spec.imageUrl,
                         isDark: isDark,
+                        fit: spec.fit,
                       ),
                     );
                   },
@@ -504,13 +596,10 @@ class IntroPageState extends State<IntroPage> {
           const SizedBox(height: 10),
           Row(
             children: [
-              Text(
-                '左右滑动查看',
-                style: TextStyle(fontSize: 12, color: mutedColor),
-              ),
+              Text('左右滑动查看', style: TextStyle(fontSize: 12, color: mutedColor)),
               const Spacer(),
               Text(
-                '${currentPage + 1}/${imageUrls.length}',
+                '${currentPage + 1}/${imageSpecs.length}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -576,10 +665,7 @@ class IntroPageState extends State<IntroPage> {
               child: SingleChildScrollView(
                 primary: false,
                 physics: const ClampingScrollPhysics(),
-                child: Text(
-                  bioText,
-                  style: bioStyle,
-                ),
+                child: Text(bioText, style: bioStyle),
               ),
             ),
           ],
@@ -593,9 +679,15 @@ class IntroPageState extends State<IntroPage> {
     required VoidCallback? onPressed,
     required bool isDark,
   }) {
-    final background = isDark ? const Color(0xCC1F1B24) : const Color(0xCCFFFFFF);
-    final disabledBackground = isDark ? const Color(0x662B2530) : const Color(0x66F7ECF5);
-    final foreground = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF5A5056);
+    final background = isDark
+        ? const Color(0xCC1F1B24)
+        : const Color(0xCCFFFFFF);
+    final disabledBackground = isDark
+        ? const Color(0x662B2530)
+        : const Color(0x66F7ECF5);
+    final foreground = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF5A5056);
 
     return Material(
       color: onPressed == null ? disabledBackground : background,
@@ -619,6 +711,65 @@ class IntroPageState extends State<IntroPage> {
       child: const Center(
         child: Icon(Icons.image_outlined, color: Color(0xFF8B8399), size: 36),
       ),
+    );
+  }
+
+  Future<List<_DetailImageDisplaySpec>> _buildDetailImageSpecs({
+    required List<String> imageUrls,
+    required double mainImageAspectRatio,
+  }) async {
+    final aspectRatios = await Future.wait(
+      imageUrls.map(_resolveImageAspectRatio),
+    );
+
+    return List<_DetailImageDisplaySpec>.generate(imageUrls.length, (index) {
+      final aspectRatio = aspectRatios[index];
+      final fit = switch (index) {
+        0 => BoxFit.contain,
+        _ when aspectRatio == null => BoxFit.contain,
+        _ =>
+          ((aspectRatio - mainImageAspectRatio).abs() / mainImageAspectRatio) >
+                  _detailImageMismatchThreshold
+              ? BoxFit.cover
+              : BoxFit.contain,
+      };
+
+      return _DetailImageDisplaySpec(imageUrl: imageUrls[index], fit: fit);
+    });
+  }
+
+  Future<double?> _resolveImageAspectRatio(String imageUrl) async {
+    final completer = Completer<double?>();
+    final stream = CachedNetworkImageProvider(
+      imageUrl,
+    ).resolve(const ImageConfiguration());
+
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (imageInfo, _) {
+        stream.removeListener(listener);
+        final width = imageInfo.image.width.toDouble();
+        final height = imageInfo.image.height.toDouble();
+        final aspectRatio = width > 0 && height > 0 ? width / height : null;
+        if (!completer.isCompleted) {
+          completer.complete(aspectRatio);
+        }
+      },
+      onError: (error, stackTrace) {
+        stream.removeListener(listener);
+        if (!completer.isCompleted) {
+          completer.complete(null);
+        }
+      },
+    );
+    stream.addListener(listener);
+
+    return completer.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        stream.removeListener(listener);
+        return null;
+      },
     );
   }
 }
