@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../app_shell.dart';
 import '../services/photo_wall_service.dart';
+import '../widgets/proxy_fallback_image.dart';
 import '../widgets/main_app_bar.dart';
 
 class PhotoWallPage extends StatefulWidget {
@@ -344,7 +344,7 @@ class PhotoWallPageState extends State<PhotoWallPage> {
               child: Container(
                 width: double.infinity,
                 color: imageBg,
-                child: CachedNetworkImage(
+                child: ProxyFallbackImage(
                   imageUrl: photo.url,
                   fit: BoxFit.fitWidth,
                   placeholder: (context, url) => const Padding(

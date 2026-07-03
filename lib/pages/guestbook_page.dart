@@ -1,6 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'dart:async';
@@ -10,6 +9,7 @@ import '../services/guestbook_cache_service.dart';
 import '../services/guestbook_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
+import '../widgets/proxy_fallback_image.dart';
 
 class GuestbookPage extends StatefulWidget {
   const GuestbookPage({super.key, this.embedded = false});
@@ -266,16 +266,17 @@ class GuestbookPageState extends State<GuestbookPage> {
       return _buildBody();
     }
     return Scaffold(
-      appBar: MainAppBar(
-        title: Text('留言 (${_entries.length})'),
-      ),
+      appBar: MainAppBar(title: Text('留言 (${_entries.length})')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isSubmitting ? null : _showSubmitMessageSheet,
         icon: _isSubmitting
             ? const SizedBox(
                 width: 16,
                 height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
               )
             : const Icon(Icons.edit_note_rounded),
         label: Text(_isSubmitting ? '提交中' : '写留言'),
@@ -288,9 +289,9 @@ class GuestbookPageState extends State<GuestbookPage> {
     final user = SupabaseService.client.auth.currentUser;
     if (user == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先登录后再留言')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先登录后再留言')));
       return;
     }
 
@@ -313,9 +314,9 @@ class GuestbookPageState extends State<GuestbookPage> {
             children: [
               Text(
                 '写留言',
-                style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                style: Theme.of(
+                  sheetContext,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -334,9 +335,9 @@ class GuestbookPageState extends State<GuestbookPage> {
                 child: FilledButton(
                   onPressed: () {
                     if (draftContent.trim().isEmpty) {
-                      ScaffoldMessenger.of(sheetContext).showSnackBar(
-                        const SnackBar(content: Text('留言内容不能为空')),
-                      );
+                      ScaffoldMessenger.of(
+                        sheetContext,
+                      ).showSnackBar(const SnackBar(content: Text('留言内容不能为空')));
                       return;
                     }
                     Navigator.of(sheetContext).pop(true);
@@ -367,14 +368,14 @@ class GuestbookPageState extends State<GuestbookPage> {
       await _loadEntries(forceRefresh: true);
     } on PostgrestException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) {
         setState(() {
@@ -402,7 +403,9 @@ class GuestbookPageState extends State<GuestbookPage> {
             Center(
               child: Text(
                 '暂无留言',
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ],
@@ -449,7 +452,7 @@ class GuestbookPageState extends State<GuestbookPage> {
       margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 1,
-        color: colorScheme.surface,
+      color: colorScheme.surface,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -527,11 +530,21 @@ class GuestbookPageState extends State<GuestbookPage> {
         radius: 18,
         backgroundColor: colorScheme.surfaceContainerHighest,
         child: ClipOval(
-          child: CachedNetworkImage(
+          child: ProxyFallbackImage(
             imageUrl: entry.avatarUrl!,
             width: 36,
             height: 36,
             fit: BoxFit.cover,
+            placeholder: (context, url) => Center(
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: colorScheme.primary,
+                ),
+              ),
+            ),
             errorWidget: (context, url, error) => Icon(
               Icons.person,
               size: 20,
@@ -570,7 +583,9 @@ class GuestbookPageState extends State<GuestbookPage> {
           Icon(
             isLiked ? Icons.thumb_up_alt_rounded : Icons.thumb_up_outlined,
             size: 14,
-            color: isLiked ? const Color(0xFFFF5DAF) : colorScheme.onSurfaceVariant,
+            color: isLiked
+                ? const Color(0xFFFF5DAF)
+                : colorScheme.onSurfaceVariant,
           ),
           const SizedBox(width: 4),
           Text(
@@ -578,7 +593,9 @@ class GuestbookPageState extends State<GuestbookPage> {
             style: TextStyle(
               fontSize: 12,
               fontWeight: isLiked ? FontWeight.w600 : FontWeight.normal,
-              color: isLiked ? const Color(0xFFFF5DAF) : colorScheme.onSurfaceVariant,
+              color: isLiked
+                  ? const Color(0xFFFF5DAF)
+                  : colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -595,7 +612,10 @@ class GuestbookPageState extends State<GuestbookPage> {
               ? null
               : () {
                   setState(() {
-                    _visibleCount = (_visibleCount + _pageSize).clamp(0, _entries.length);
+                    _visibleCount = (_visibleCount + _pageSize).clamp(
+                      0,
+                      _entries.length,
+                    );
                   });
                 },
           icon: const Icon(Icons.expand_more, size: 18),
@@ -661,4 +681,3 @@ class GuestbookPageState extends State<GuestbookPage> {
     return '${dateTime.year}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.day.toString().padLeft(2, '0')}';
   }
 }
-

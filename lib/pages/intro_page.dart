@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 
 import '../app_shell.dart';
 import '../services/intro_profile_service.dart';
+import '../services/pic_proxy_image_service.dart';
+import '../widgets/proxy_fallback_image.dart';
 import '../widgets/main_app_bar.dart';
 
 class _DetailImageDisplaySpec {
@@ -324,7 +326,7 @@ class IntroPageState extends State<IntroPage> {
               ? const Center(
                   child: Icon(Icons.person_outline, color: Color(0xFF8B8399)),
                 )
-              : CachedNetworkImage(
+              : ProxyFallbackImage(
                   imageUrl: avatarUrl,
                   fit: BoxFit.cover,
                   placeholder: (context, url) => const Center(
@@ -508,7 +510,7 @@ class IntroPageState extends State<IntroPage> {
       borderRadius: BorderRadius.circular(20),
       child: ColoredBox(
         color: imageBg,
-        child: CachedNetworkImage(
+        child: ProxyFallbackImage(
           imageUrl: imageUrl,
           fit: fit,
           alignment: Alignment.center,
@@ -739,6 +741,14 @@ class IntroPageState extends State<IntroPage> {
   }
 
   Future<double?> _resolveImageAspectRatio(String imageUrl) async {
+    final directAspectRatio = await _resolveAspectRatioOnce(imageUrl);
+    if (directAspectRatio != null) return directAspectRatio;
+    final proxyUrl = PicProxyImageService.buildProxyUrl(imageUrl);
+    if (proxyUrl == null) return null;
+    return _resolveAspectRatioOnce(proxyUrl);
+  }
+
+  Future<double?> _resolveAspectRatioOnce(String imageUrl) async {
     final completer = Completer<double?>();
     final stream = CachedNetworkImageProvider(
       imageUrl,
