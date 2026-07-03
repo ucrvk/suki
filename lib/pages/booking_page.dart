@@ -1,7 +1,6 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -39,7 +38,6 @@ class BookingPage extends StatefulWidget {
 }
 
 class _BookingPageState extends State<BookingPage> {
-  static const _favoriteStorageKey = 'favorite_maid_ids';
   static const _fullThreshold = 2;
 
   bool _loading = true;
@@ -51,6 +49,7 @@ class _BookingPageState extends State<BookingPage> {
   List<String> _timeSlots = const [];
   Set<String> _bookedSlotKeys = const <String>{};
   Set<String> _favoriteIds = <String>{};
+  final Set<String> _favoriteSubmittingIds = <String>{};
   final Set<String> _submittingKeys = <String>{};
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -69,6 +68,7 @@ class _BookingPageState extends State<BookingPage> {
       setState(() {
         _currentUser = event.session?.user;
       });
+      unawaited(_loadFavorites());
     });
     _tabReselectListener = () {
       final event = AppShell.tabReselectNotifier.value;
@@ -110,28 +110,90 @@ class _BookingPageState extends State<BookingPage> {
   }
 
   Future<void> _loadFavorites() async {
-    final prefs = await SharedPreferences.getInstance();
-    final ids = prefs.getStringList(_favoriteStorageKey) ?? const <String>[];
+    final user = SupabaseService.client.auth.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        _favoriteIds = <String>{};
+      });
+      return;
+    }
+
+    final data = await SupabaseService.client
+        .from('suki_profiles')
+        .select('favorite_maids')
+        .eq('id', user.id)
+        .maybeSingle();
+    final ids = ((data?['favorite_maids'] as List?) ?? const <dynamic>[])
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
     if (!mounted) return;
     setState(() {
-      _favoriteIds = ids.toSet();
+      _favoriteIds = ids;
     });
   }
 
-  Future<void> _persistFavorites() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_favoriteStorageKey, _favoriteIds.toList());
-  }
+  Future<void> _toggleFavorite(Map<String, dynamic> maid) async {
+    final user = SupabaseService.client.auth.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('请先登录后再收藏'),
+          action: SnackBarAction(
+            label: '去登录',
+            onPressed: () => AppShell.switchToTab(AppShell.meTabIndex()),
+          ),
+        ),
+      );
+      return;
+    }
 
-  Future<void> _toggleFavorite(String id) async {
+    final maidVrcid = _maidFavoriteId(maid);
+    if (maidVrcid.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('该女仆缺少 VRCID，暂时无法收藏')));
+      return;
+    }
+    if (_favoriteSubmittingIds.contains(maidVrcid)) return;
+
     setState(() {
-      if (_favoriteIds.contains(id)) {
-        _favoriteIds.remove(id);
-      } else {
-        _favoriteIds.add(id);
-      }
+      _favoriteSubmittingIds.add(maidVrcid);
     });
-    await _persistFavorites();
+
+    try {
+      final wasFavorite = _favoriteIds.contains(maidVrcid);
+      final result = await SupabaseService.client.rpc(
+        'toggle_favorite_maid',
+        params: {'p_maid_vrcid': maidVrcid},
+      );
+      if (!mounted) return;
+      if (result != true) {
+        throw Exception('收藏操作失败');
+      }
+      setState(() {
+        if (wasFavorite) {
+          _favoriteIds.remove(maidVrcid);
+        } else {
+          _favoriteIds.add(maidVrcid);
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final message = e.toString().replaceFirst('Exception: ', '');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message.isEmpty ? '收藏操作失败' : message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _favoriteSubmittingIds.remove(maidVrcid);
+        });
+      }
+    }
   }
 
   Future<void> _fetchMaids({bool forceRefresh = false}) async {
@@ -214,6 +276,10 @@ class _BookingPageState extends State<BookingPage> {
     return (maid['name'] ?? '').toString().trim();
   }
 
+  String _maidFavoriteId(Map<String, dynamic> maid) {
+    return (maid['vrcid'] ?? '').toString().trim();
+  }
+
   int _reservationCountForMaid(Map<String, dynamic> maid) {
     final vrcid = (maid['vrcid'] ?? '').toString().trim();
     final name = (maid['name'] ?? '').toString().trim();
@@ -262,7 +328,7 @@ class _BookingPageState extends State<BookingPage> {
           maid: maid,
           uniqueId: uniqueId,
           status: _statusForMaid(maid),
-          isFavorite: _favoriteIds.contains(uniqueId),
+          isFavorite: _favoriteIds.contains(_maidFavoriteId(maid)),
           originalIndex: i,
         ),
       );
@@ -438,7 +504,8 @@ class _BookingPageState extends State<BookingPage> {
                       width: double.infinity,
                       child: FilledButton(
                         onPressed: () {
-                          if (withFriend && friendVrcidController.text.trim().isEmpty) {
+                          if (withFriend &&
+                              friendVrcidController.text.trim().isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('请先填写好友 VRCID')),
                             );
@@ -705,7 +772,7 @@ class _BookingPageState extends State<BookingPage> {
                                 status: item.status,
                                 isFavorite: item.isFavorite,
                                 onToggleFavorite: () =>
-                                    _toggleFavorite(item.uniqueId),
+                                    _toggleFavorite(item.maid),
                                 onBook: () => _onBookTap(item: item),
                                 submitting: _isSubmittingAnySlot(item.uniqueId),
                               ),

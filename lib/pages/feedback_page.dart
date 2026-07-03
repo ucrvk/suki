@@ -4,6 +4,7 @@ import '../app_shell.dart';
 import '../widgets/main_app_bar.dart';
 import 'guestbook_page.dart';
 import 'intro_page.dart';
+import 'photo_wall_page.dart';
 import 'reviews_page.dart';
 
 class FeedbackPage extends StatefulWidget {
@@ -17,7 +18,10 @@ class _FeedbackPageState extends State<FeedbackPage> {
   int _segment = 0;
   final GlobalKey<IntroPageState> _introKey = GlobalKey<IntroPageState>();
   final GlobalKey<ReviewsPageState> _reviewsKey = GlobalKey<ReviewsPageState>();
-  final GlobalKey<GuestbookPageState> _guestbookKey = GlobalKey<GuestbookPageState>();
+  final GlobalKey<GuestbookPageState> _guestbookKey =
+      GlobalKey<GuestbookPageState>();
+  final GlobalKey<PhotoWallPageState> _photoWallKey =
+      GlobalKey<PhotoWallPageState>();
   late final VoidCallback _tabReselectListener;
 
   @override
@@ -56,10 +60,19 @@ class _FeedbackPageState extends State<FeedbackPage> {
       return;
     }
 
+    if (_segment == 2) {
+      if (action == TabReselectAction.scrollToTop) {
+        await _guestbookKey.currentState?.scrollToTop();
+      } else {
+        await _guestbookKey.currentState?.refreshData();
+      }
+      return;
+    }
+
     if (action == TabReselectAction.scrollToTop) {
-      await _guestbookKey.currentState?.scrollToTop();
+      await _photoWallKey.currentState?.scrollToTop();
     } else {
-      await _guestbookKey.currentState?.refreshData();
+      await _photoWallKey.currentState?.refreshData();
     }
   }
 
@@ -83,6 +96,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
               ButtonSegment<int>(value: 0, label: Text('介绍')),
               ButtonSegment<int>(value: 1, label: Text('评价')),
               ButtonSegment<int>(value: 2, label: Text('留言')),
+              ButtonSegment<int>(value: 3, label: Text('照片墙')),
             ],
             selected: {_segment},
             showSelectedIcon: false,
@@ -100,13 +114,18 @@ class _FeedbackPageState extends State<FeedbackPage> {
           IntroPage(key: _introKey, embedded: true),
           ReviewsPage(key: _reviewsKey, embedded: true),
           GuestbookPage(key: _guestbookKey, embedded: true),
+          PhotoWallPage(key: _photoWallKey, embedded: true),
         ],
       ),
-      floatingActionButton: _segment == 0
+      floatingActionButton: _segment == 0 || _segment == 3
           ? null
           : FloatingActionButton.extended(
               onPressed: _onFabTap,
-              icon: Icon(_segment == 1 ? Icons.rate_review_outlined : Icons.edit_note_rounded),
+              icon: Icon(
+                _segment == 1
+                    ? Icons.rate_review_outlined
+                    : Icons.edit_note_rounded,
+              ),
               label: Text(_segment == 1 ? '写评价' : '写留言'),
             ),
     );
