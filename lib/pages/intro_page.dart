@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../app_shell.dart';
 import '../services/intro_profile_service.dart';
-import '../services/pic_proxy_image_service.dart';
+import '../utils/display_name.dart';
 import '../widgets/proxy_fallback_image.dart';
 import '../widgets/main_app_bar.dart';
 
@@ -28,10 +27,11 @@ class IntroPage extends StatefulWidget {
 
 class IntroPageState extends State<IntroPage> {
   static const double _defaultDetailImageAspectRatio = 3 / 4;
-  static const double _detailImageMismatchThreshold = 0.12;
+
   static const double _minDetailTextHeight = 120;
-  static const double _minDetailImageHeight = 160;
-  static const double _detailImageMaxHeightFactor = 0.58;
+  static const double _detailTextHeaderHeight = 84;
+
+  static const double _detailImageMaxHeightFactor = 0.45;
   static const double _detailSheetHorizontalPadding = 16;
   static const double _detailSheetVerticalPadding = 28;
   static const double _detailImageTextGap = 14;
@@ -231,8 +231,8 @@ class IntroPageState extends State<IntroPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  record.username,
+                ResponsiveDisplayName(
+                  name: record.username,
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
@@ -355,16 +355,13 @@ class IntroPageState extends State<IntroPage> {
       record.extraImage2Url,
     }.where((url) => url.trim().isNotEmpty).toList();
     final hasImages = imageUrls.isNotEmpty;
-    final mainImageAspectRatio = hasImages
-        ? await _resolveImageAspectRatio(imageUrls.first) ??
-              _defaultDetailImageAspectRatio
-        : _defaultDetailImageAspectRatio;
-    final detailImageSpecs = hasImages
-        ? await _buildDetailImageSpecs(
-            imageUrls: imageUrls,
-            mainImageAspectRatio: mainImageAspectRatio,
-          )
-        : const <_DetailImageDisplaySpec>[];
+    const mainImageAspectRatio = _defaultDetailImageAspectRatio;
+    final detailImageSpecs = imageUrls
+        .map(
+          (imageUrl) =>
+              _DetailImageDisplaySpec(imageUrl: imageUrl, fit: BoxFit.contain),
+        )
+        .toList();
     if (!mounted) return;
     final pageController = PageController(
       viewportFraction: imageUrls.length > 1 ? 0.92 : 1.0,
@@ -416,10 +413,26 @@ class IntroPageState extends State<IntroPage> {
                     final indicatorHeight = hasMultipleImages
                         ? _detailImageIndicatorHeight
                         : 0.0;
+                    final bioText = record.fullBio.isEmpty
+                        ? '暂无详细介绍'
+                        : record.fullBio;
+                    final bioPainter = TextPainter(
+                      text: TextSpan(
+                        text: bioText,
+                        style: TextStyle(
+                          fontSize: 15,
+                          height: 1.55,
+                          color: bodyColor,
+                        ),
+                      ),
+                      textDirection: Directionality.of(context),
+                    )..layout(maxWidth: contentWidth);
+                    final desiredTextPaneHeight =
+                        _detailTextHeaderHeight + bioPainter.height;
                     final maxImageHeightByScreen =
                         maxSheetHeight * _detailImageMaxHeightFactor;
                     final maxImageHeightByLayout = math.max(
-                      _minDetailImageHeight,
+                      0.0,
                       contentMaxHeight -
                           _minDetailTextHeight -
                           _detailImageTextGap -
@@ -434,26 +447,30 @@ class IntroPageState extends State<IntroPage> {
                             ),
                           )
                         : 0.0;
-                    final imageSectionHeight = hasImages
-                        ? imageHeight + indicatorHeight
-                        : 0.0;
-                    final remainingBodyHeight = hasImages
-                        ? math.max(
-                            _minDetailTextHeight,
-                            contentMaxHeight -
-                                imageSectionHeight -
-                                _detailImageTextGap,
-                          )
-                        : math.max(_minDetailTextHeight, contentMaxHeight);
 
-                    return ConstrainedBox(
-                      constraints: BoxConstraints(maxHeight: maxSheetHeight),
+                    final imageSectionHeight = hasImages
+                        ? imageHeight + indicatorHeight + _detailImageTextGap
+                        : 0.0;
+                    final maxTextPaneHeight = math.max(
+                      _detailTextHeaderHeight,
+                      contentMaxHeight - imageSectionHeight,
+                    );
+                    final textPaneHeight = math.min(
+                      desiredTextPaneHeight,
+                      maxTextPaneHeight,
+                    );
+                    final sheetHeight =
+                        _detailSheetVerticalPadding +
+                        imageSectionHeight +
+                        textPaneHeight;
+
+                    return SizedBox(
+                      height: sheetHeight,
                       child: Material(
                         color: cardBg,
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               if (hasImages)
@@ -475,12 +492,14 @@ class IntroPageState extends State<IntroPage> {
                                       : null,
                                 ),
                               if (hasImages) const SizedBox(height: 14),
-                              _buildDetailTextPane(
-                                record: record,
-                                bodyColor: bodyColor,
-                                mutedColor: mutedColor,
-                                isDark: isDark,
-                                maxBodyHeight: remainingBodyHeight,
+                              SizedBox(
+                                height: textPaneHeight,
+                                child: _buildDetailTextPane(
+                                  record: record,
+                                  bodyColor: bodyColor,
+                                  mutedColor: mutedColor,
+                                  isDark: isDark,
+                                ),
                               ),
                             ],
                           ),
@@ -620,59 +639,41 @@ class IntroPageState extends State<IntroPage> {
     required Color bodyColor,
     required Color mutedColor,
     required bool isDark,
-    required double maxBodyHeight,
   }) {
     final statBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFF7ECF5);
     final bioText = record.fullBio.isEmpty ? '暂无详细介绍' : record.fullBio;
+    final bioStyle = TextStyle(fontSize: 15, height: 1.55, color: bodyColor);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final bioStyle = TextStyle(
-          fontSize: 15,
-          height: 1.55,
-          color: bodyColor,
-        );
-        final bioPainter = TextPainter(
-          text: TextSpan(text: bioText, style: bioStyle),
-          textDirection: Directionality.of(context),
-          maxLines: null,
-        )..layout(maxWidth: constraints.maxWidth);
-        final bodyHeight = math.min(bioPainter.height, maxBodyHeight);
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ResponsiveDisplayName(
+          name: record.username,
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            Text(
-              record.username,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildStatPill('HP ${record.statHp}', statBg, mutedColor),
-                _buildStatPill('ATK ${record.statAtk}', statBg, mutedColor),
-                _buildStatPill('DEF ${record.statDef}', statBg, mutedColor),
-              ],
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              height: bodyHeight,
-              child: SingleChildScrollView(
-                primary: false,
-                physics: const ClampingScrollPhysics(),
-                child: Text(bioText, style: bioStyle),
-              ),
-            ),
+            _buildStatPill('HP ${record.statHp}', statBg, mutedColor),
+            _buildStatPill('ATK ${record.statAtk}', statBg, mutedColor),
+            _buildStatPill('DEF ${record.statDef}', statBg, mutedColor),
           ],
-        );
-      },
+        ),
+        const SizedBox(height: 14),
+        Expanded(
+          child: SingleChildScrollView(
+            primary: false,
+            physics: const ClampingScrollPhysics(),
+            child: Text(bioText, style: bioStyle),
+          ),
+        ),
+      ],
     );
   }
 
@@ -713,73 +714,6 @@ class IntroPageState extends State<IntroPage> {
       child: const Center(
         child: Icon(Icons.image_outlined, color: Color(0xFF8B8399), size: 36),
       ),
-    );
-  }
-
-  Future<List<_DetailImageDisplaySpec>> _buildDetailImageSpecs({
-    required List<String> imageUrls,
-    required double mainImageAspectRatio,
-  }) async {
-    final aspectRatios = await Future.wait(
-      imageUrls.map(_resolveImageAspectRatio),
-    );
-
-    return List<_DetailImageDisplaySpec>.generate(imageUrls.length, (index) {
-      final aspectRatio = aspectRatios[index];
-      final fit = switch (index) {
-        0 => BoxFit.contain,
-        _ when aspectRatio == null => BoxFit.contain,
-        _ =>
-          ((aspectRatio - mainImageAspectRatio).abs() / mainImageAspectRatio) >
-                  _detailImageMismatchThreshold
-              ? BoxFit.cover
-              : BoxFit.contain,
-      };
-
-      return _DetailImageDisplaySpec(imageUrl: imageUrls[index], fit: fit);
-    });
-  }
-
-  Future<double?> _resolveImageAspectRatio(String imageUrl) async {
-    final directAspectRatio = await _resolveAspectRatioOnce(imageUrl);
-    if (directAspectRatio != null) return directAspectRatio;
-    final proxyUrl = PicProxyImageService.buildProxyUrl(imageUrl);
-    if (proxyUrl == null) return null;
-    return _resolveAspectRatioOnce(proxyUrl);
-  }
-
-  Future<double?> _resolveAspectRatioOnce(String imageUrl) async {
-    final completer = Completer<double?>();
-    final stream = CachedNetworkImageProvider(
-      imageUrl,
-    ).resolve(const ImageConfiguration());
-
-    late final ImageStreamListener listener;
-    listener = ImageStreamListener(
-      (imageInfo, _) {
-        stream.removeListener(listener);
-        final width = imageInfo.image.width.toDouble();
-        final height = imageInfo.image.height.toDouble();
-        final aspectRatio = width > 0 && height > 0 ? width / height : null;
-        if (!completer.isCompleted) {
-          completer.complete(aspectRatio);
-        }
-      },
-      onError: (error, stackTrace) {
-        stream.removeListener(listener);
-        if (!completer.isCompleted) {
-          completer.complete(null);
-        }
-      },
-    );
-    stream.addListener(listener);
-
-    return completer.future.timeout(
-      const Duration(seconds: 5),
-      onTimeout: () {
-        stream.removeListener(listener);
-        return null;
-      },
     );
   }
 }
