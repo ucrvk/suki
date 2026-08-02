@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'auth_log_service.dart';
 import 'fcm_service.dart';
 import 'supabase_service.dart';
 
@@ -89,15 +90,41 @@ class SysbookingApiService {
     required String password,
     String? fcmToken,
   }) async {
-    final authResponse = await SupabaseService.client.auth.signInWithPassword(
-      email: email,
-      password: password,
-    );
-    final session = authResponse.session;
-    if (session == null) {
-      throw const SysbookingApiException('登录失败，未获取到有效会话');
+    try {
+      final authResponse = await SupabaseService.client.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+      await AuthLogService.record(
+        event: 'password_sign_in',
+        source: 'SysbookingApiService.loginAndGetBookingToken',
+        succeeded: authResponse.session != null,
+        email: email,
+        detail: authResponse.session == null ? '认证服务未返回会话' : null,
+        session: authResponse.session,
+      );
+      final session = authResponse.session;
+      if (session == null) {
+        throw const SysbookingApiException('登录失败，未获取到有效会话');
+      }
+      return exchangeSessionForBookingToken(
+        session: session,
+        fcmToken: fcmToken,
+      );
+    } catch (error) {
+      if (error is! SysbookingApiException) {
+        await AuthLogService.record(
+          event: 'password_sign_in',
+          source: 'SysbookingApiService.loginAndGetBookingToken',
+          succeeded: false,
+          email: email,
+          detail: error is AuthException
+              ? error.message
+              : AuthLogService.errorDetail(error),
+        );
+      }
+      rethrow;
     }
-    return exchangeSessionForBookingToken(session: session, fcmToken: fcmToken);
   }
 
   static Future<String> exchangeSessionForBookingToken({

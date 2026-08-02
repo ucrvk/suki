@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app_shell.dart';
+import '../services/auth_log_service.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/sysbooking_api_service.dart';
 import '../services/sysbooking_session_store.dart';
@@ -68,11 +69,13 @@ class _QueuePageState extends State<QueuePage> {
     if (event == null || event.index != AppShell.queueTabIndex()) return;
     if (event.action == TabReselectAction.scrollToTop) {
       if (_scrollController.hasClients) {
-        unawaited(_scrollController.animateTo(
-          0,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-        ));
+        unawaited(
+          _scrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+          ),
+        );
       }
       return;
     }
@@ -92,10 +95,7 @@ class _QueuePageState extends State<QueuePage> {
 
       final name = (maid['name'] ?? '').toString().trim();
       choices.add(
-        _QueueMaidChoice(
-          vrcid: vrcid,
-          label: name.isEmpty ? vrcid : name,
-        ),
+        _QueueMaidChoice(vrcid: vrcid, label: name.isEmpty ? vrcid : name),
       );
     }
 
@@ -154,7 +154,8 @@ class _QueuePageState extends State<QueuePage> {
 
   Future<void> _refreshQueueState({bool forceRefresh = false}) async {
     if (!mounted) return;
-    if (AppShell.tabIndexNotifier.value != AppShell.queueTabIndex() && !forceRefresh) {
+    if (AppShell.tabIndexNotifier.value != AppShell.queueTabIndex() &&
+        !forceRefresh) {
       return;
     }
     if (_loading) return;
@@ -174,7 +175,9 @@ class _QueuePageState extends State<QueuePage> {
           final items = await SysbookingApiService.fetchQueueList(cachedToken);
           MaidCatalogSnapshot? catalogSnapshot;
           try {
-            catalogSnapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
+            catalogSnapshot = await MaidCatalogCacheService.getSnapshot(
+              forceRefresh: forceRefresh,
+            );
           } catch (_) {
             catalogSnapshot = null;
           }
@@ -214,7 +217,9 @@ class _QueuePageState extends State<QueuePage> {
       final items = await SysbookingApiService.fetchQueueList(token);
       MaidCatalogSnapshot? catalogSnapshot;
       try {
-        catalogSnapshot = await MaidCatalogCacheService.getSnapshot(forceRefresh: forceRefresh);
+        catalogSnapshot = await MaidCatalogCacheService.getSnapshot(
+          forceRefresh: forceRefresh,
+        );
       } catch (_) {
         catalogSnapshot = null;
       }
@@ -257,7 +262,9 @@ class _QueuePageState extends State<QueuePage> {
     setState(() {
       _bookingToken = null;
     });
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
     await _refreshQueueState(forceRefresh: true);
   }
 
@@ -274,17 +281,17 @@ class _QueuePageState extends State<QueuePage> {
       choices = await _loadQueueMaidChoices();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
       return;
     }
 
     if (!mounted) return;
     if (choices.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('暂无可用于添加排队的女仆')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('暂无可用于添加排队的女仆')));
       return;
     }
 
@@ -295,9 +302,9 @@ class _QueuePageState extends State<QueuePage> {
       MaidCatalogCacheService.invalidate();
       await _maybeBootstrap(forceRefresh: true);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已添加排队')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已添加排队')));
       return;
     }
 
@@ -309,18 +316,18 @@ class _QueuePageState extends State<QueuePage> {
       });
       await _maybeBootstrap(forceRefresh: true);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(result.message)));
     }
   }
 
   Future<void> _toggleAutoqueue(SysbookingQueueItem item) async {
     final bookingId = item.bookingId.trim();
     if (bookingId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('缺少 booking_id，暂时无法切换自动排队')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('缺少 booking_id，暂时无法切换自动排队')));
       return;
     }
     if (_busyBookingIds.contains(bookingId)) return;
@@ -374,9 +381,9 @@ class _QueuePageState extends State<QueuePage> {
           ),
         );
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -392,9 +399,9 @@ class _QueuePageState extends State<QueuePage> {
           ),
         );
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) {
         setState(() {
@@ -409,9 +416,9 @@ class _QueuePageState extends State<QueuePage> {
   Future<void> _deleteBooking(SysbookingQueueItem item) async {
     final bookingId = item.bookingId.trim();
     if (bookingId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('缺少 booking_id，暂时无法删除预约')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('缺少 booking_id，暂时无法删除预约')));
       return;
     }
     if (_busyBookingIds.contains(bookingId)) return;
@@ -421,9 +428,7 @@ class _QueuePageState extends State<QueuePage> {
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('删除预约'),
-          content: Text(
-            '确定删除 ${_displayMaidName(item)} 的排队预约吗？',
-          ),
+          content: Text('确定删除 ${_displayMaidName(item)} 的排队预约吗？'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -458,20 +463,22 @@ class _QueuePageState extends State<QueuePage> {
         _removeItem(item);
       });
       unawaited(_refreshQueueState(forceRefresh: true));
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('预约已删除')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('预约已删除')));
     } on SysbookingUnauthorizedException catch (e) {
       if (!mounted) return;
       await _handleUnauthorizedAction(e.message);
     } on SysbookingApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) {
         setState(() {
@@ -486,9 +493,9 @@ class _QueuePageState extends State<QueuePage> {
   Future<void> _editFriendInfo(SysbookingQueueItem item) async {
     final bookingId = item.bookingId.trim();
     if (bookingId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('缺少 booking_id，暂时无法修改好友信息')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('缺少 booking_id，暂时无法修改好友信息')));
       return;
     }
     if (_busyBookingIds.contains(bookingId)) return;
@@ -536,9 +543,9 @@ class _QueuePageState extends State<QueuePage> {
                   completed = true;
                   Navigator.of(dialogContext).pop();
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('好友信息已更新')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('好友信息已更新')));
                   unawaited(_refreshQueueState(forceRefresh: true));
                 } on SysbookingUnauthorizedException catch (e) {
                   if (!dialogContext.mounted) return;
@@ -614,7 +621,9 @@ class _QueuePageState extends State<QueuePage> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: submitting ? null : () => Navigator.of(dialogContext).pop(),
+                    onPressed: submitting
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
                     child: const Text('取消'),
                   ),
                   FilledButton(
@@ -694,15 +703,15 @@ class _QueuePageState extends State<QueuePage> {
                   );
                   if (!dialogContext.mounted) return;
                   completed = true;
-                  Navigator.of(dialogContext).pop(
-                    const _AddQueueDialogResult.created(),
-                  );
+                  Navigator.of(
+                    dialogContext,
+                  ).pop(const _AddQueueDialogResult.created());
                 } on SysbookingUnauthorizedException catch (e) {
                   if (!dialogContext.mounted) return;
                   completed = true;
-                  Navigator.of(dialogContext).pop(
-                    _AddQueueDialogResult.unauthorized(e.message),
-                  );
+                  Navigator.of(
+                    dialogContext,
+                  ).pop(_AddQueueDialogResult.unauthorized(e.message));
                 } on SysbookingApiException catch (e) {
                   if (!dialogContext.mounted) return;
                   setDialogState(() {
@@ -746,7 +755,9 @@ class _QueuePageState extends State<QueuePage> {
                               ? null
                               : (value) {
                                   if (value == null) return;
-                                  final found = choices.where((e) => e.vrcid == value).toList();
+                                  final found = choices
+                                      .where((e) => e.vrcid == value)
+                                      .toList();
                                   if (found.isEmpty) return;
                                   setDialogState(() {
                                     selectedMaid = found.first;
@@ -777,8 +788,8 @@ class _QueuePageState extends State<QueuePage> {
                           onChanged: submitting
                               ? null
                               : (value) => setDialogState(() {
-                                    autoqueue = value;
-                                  }),
+                                  autoqueue = value;
+                                }),
                           title: const Text('自动排队'),
                         ),
                         SwitchListTile(
@@ -787,11 +798,11 @@ class _QueuePageState extends State<QueuePage> {
                           onChanged: submitting
                               ? null
                               : (value) => setDialogState(() {
-                                    withFriend = value;
-                                    if (!value) {
-                                      friendVrcidController.clear();
-                                    }
-                                  }),
+                                  withFriend = value;
+                                  if (!value) {
+                                    friendVrcidController.clear();
+                                  }
+                                }),
                           title: const Text('带朋友一起'),
                         ),
                         if (withFriend) ...[
@@ -823,7 +834,9 @@ class _QueuePageState extends State<QueuePage> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: submitting ? null : () => Navigator.of(dialogContext).pop(),
+                    onPressed: submitting
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
                     child: const Text('取消'),
                   ),
                   FilledButton(
@@ -878,36 +891,68 @@ class _QueuePageState extends State<QueuePage> {
                 final password = passwordController.text;
                 if (email.isEmpty || password.isEmpty) {
                   if (!dialogContext.mounted) return;
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(content: Text('请输入邮箱和密码')),
-                  );
+                  ScaffoldMessenger.of(
+                    dialogContext,
+                  ).showSnackBar(const SnackBar(content: Text('请输入邮箱和密码')));
                   return;
                 }
 
                 setDialogState(() => submitting = true);
+                var signInFailureRecorded = false;
 
                 try {
-                  final authResponse = await SupabaseService.client.auth.signInWithPassword(
-                    email: email,
-                    password: password,
-                  );
+                  final authResponse = await SupabaseService.client.auth
+                      .signInWithPassword(email: email, password: password);
                   final session = authResponse.session;
                   if (session == null) {
+                    await AuthLogService.record(
+                      event: 'password_sign_in',
+                      source: 'QueuePage._showLoginDialog',
+                      succeeded: false,
+                      email: email,
+                      detail: '认证服务未返回会话',
+                    );
+                    signInFailureRecorded = true;
                     throw Exception('登录失败，未获取到会话');
                   }
+                  await AuthLogService.record(
+                    event: 'password_sign_in',
+                    source: 'QueuePage._showLoginDialog',
+                    succeeded: true,
+                    email: email,
+                    session: session,
+                  );
                   if (!dialogContext.mounted) return;
                   completed = true;
-                  Navigator.of(dialogContext).pop(_LoginResult(email: email, session: session));
+                  Navigator.of(
+                    dialogContext,
+                  ).pop(_LoginResult(email: email, session: session));
                 } on AuthException catch (e) {
-                  if (!dialogContext.mounted) return;
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(content: Text(e.message)),
+                  await AuthLogService.record(
+                    event: 'password_sign_in',
+                    source: 'QueuePage._showLoginDialog',
+                    succeeded: false,
+                    email: email,
+                    detail: e.message,
                   );
+                  if (!dialogContext.mounted) return;
+                  ScaffoldMessenger.of(
+                    dialogContext,
+                  ).showSnackBar(SnackBar(content: Text(e.message)));
                 } catch (e) {
+                  if (!signInFailureRecorded) {
+                    await AuthLogService.record(
+                      event: 'password_sign_in',
+                      source: 'QueuePage._showLoginDialog',
+                      succeeded: false,
+                      email: email,
+                      detail: AuthLogService.errorDetail(e),
+                    );
+                  }
                   if (!dialogContext.mounted) return;
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(content: Text(e.toString())),
-                  );
+                  ScaffoldMessenger.of(
+                    dialogContext,
+                  ).showSnackBar(SnackBar(content: Text(e.toString())));
                 } finally {
                   if (dialogContext.mounted && !completed) {
                     setDialogState(() => submitting = false);
@@ -939,7 +984,9 @@ class _QueuePageState extends State<QueuePage> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: submitting ? null : () => Navigator.of(dialogContext).pop(),
+                    onPressed: submitting
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
                     child: const Text('取消'),
                   ),
                   FilledButton(
@@ -988,7 +1035,9 @@ class _QueuePageState extends State<QueuePage> {
         title: const Text('排队'),
         actions: [
           IconButton(
-            onPressed: _loading ? null : () => unawaited(_maybeBootstrap(forceRefresh: true)),
+            onPressed: _loading
+                ? null
+                : () => unawaited(_maybeBootstrap(forceRefresh: true)),
             icon: const Icon(Icons.refresh),
             tooltip: '刷新',
           ),
@@ -1034,7 +1083,9 @@ class _QueuePageState extends State<QueuePage> {
   Widget _buildHeaderCard() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
     return Container(
@@ -1059,7 +1110,9 @@ class _QueuePageState extends State<QueuePage> {
   Widget _buildEmptyState() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
     return Container(
@@ -1075,7 +1128,11 @@ class _QueuePageState extends State<QueuePage> {
           const SizedBox(height: 12),
           Text(
             '暂无正在排队的预约',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: titleColor,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
@@ -1091,7 +1148,9 @@ class _QueuePageState extends State<QueuePage> {
   Widget _buildErrorState() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
     return Container(
@@ -1107,7 +1166,11 @@ class _QueuePageState extends State<QueuePage> {
           const SizedBox(height: 12),
           Text(
             '加载失败',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: titleColor,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
@@ -1128,7 +1191,9 @@ class _QueuePageState extends State<QueuePage> {
   Widget _buildQueueCard(SysbookingQueueItem item) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
     final accent = Theme.of(context).colorScheme.primary;
     final maidName = _displayMaidName(item);
@@ -1156,12 +1221,22 @@ class _QueuePageState extends State<QueuePage> {
               children: [
                 Text(
                   maidName,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: titleColor),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: titleColor,
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Text('时段 ${_timeslotLabel(item.timeslot)}', style: TextStyle(color: subColor)),
+                Text(
+                  '时段 ${_timeslotLabel(item.timeslot)}',
+                  style: TextStyle(color: subColor),
+                ),
                 const SizedBox(height: 4),
-                Text(_queueLabel(item.queue), style: TextStyle(color: subColor)),
+                Text(
+                  _queueLabel(item.queue),
+                  style: TextStyle(color: subColor),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   item.autoqueue ? '自动排队：开启' : '自动排队：关闭',
@@ -1178,8 +1253,8 @@ class _QueuePageState extends State<QueuePage> {
                 Text(
                   item.withFriend
                       ? (item.friendVrcid.isEmpty
-                          ? '好友 VRCID：未填写'
-                          : '好友 VRCID：${item.friendVrcid}')
+                            ? '好友 VRCID：未填写'
+                            : '好友 VRCID：${item.friendVrcid}')
                       : '好友 VRCID：-',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1194,9 +1269,9 @@ class _QueuePageState extends State<QueuePage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.tonalIcon(
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
                     onPressed: canMutate ? () => _toggleAutoqueue(item) : null,
                     icon: isBusy
                         ? const SizedBox(
@@ -1204,7 +1279,11 @@ class _QueuePageState extends State<QueuePage> {
                             height: 14,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : Icon(item.autoqueue ? Icons.toggle_on_rounded : Icons.toggle_off_outlined),
+                        : Icon(
+                            item.autoqueue
+                                ? Icons.toggle_on_rounded
+                                : Icons.toggle_off_outlined,
+                          ),
                     label: Text(item.autoqueue ? '关闭自动' : '开启自动'),
                   ),
                 ),
@@ -1236,10 +1315,7 @@ class _QueuePageState extends State<QueuePage> {
 }
 
 class _QueueMaidChoice {
-  const _QueueMaidChoice({
-    required this.vrcid,
-    required this.label,
-  });
+  const _QueueMaidChoice({required this.vrcid, required this.label});
 
   final String vrcid;
   final String label;
@@ -1248,25 +1324,20 @@ class _QueueMaidChoice {
 class _AddQueueDialogResult {
   const _AddQueueDialogResult._(this.kind, this.message);
 
-  const _AddQueueDialogResult.created() : this._(_AddQueueDialogResultKind.created, '');
+  const _AddQueueDialogResult.created()
+    : this._(_AddQueueDialogResultKind.created, '');
 
   const _AddQueueDialogResult.unauthorized(String message)
-      : this._(_AddQueueDialogResultKind.unauthorized, message);
+    : this._(_AddQueueDialogResultKind.unauthorized, message);
 
   final _AddQueueDialogResultKind kind;
   final String message;
 }
 
-enum _AddQueueDialogResultKind {
-  created,
-  unauthorized,
-}
+enum _AddQueueDialogResultKind { created, unauthorized }
 
 class _LoginResult {
-  const _LoginResult({
-    required this.email,
-    required this.session,
-  });
+  const _LoginResult({required this.email, required this.session});
 
   final String email;
   final Session session;

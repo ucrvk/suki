@@ -598,12 +598,19 @@ class _BookingPageState extends State<BookingPage> {
           ],
         ),
         actions: [
+          TextButton(
+            onPressed: () async {
+              final uri = Uri.parse('https://vrcsuki.chat/catlife');
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            child: const Text('猫生重开'),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: TextButton(
               onPressed: () async {
                 final uri = Uri.parse('https://vrcsuki.chat/catking');
-                await launchUrl(uri, mode: LaunchMode.inAppWebView);
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
               },
               child: const Text('猫王争霸'),
             ),

@@ -1,5 +1,6 @@
-﻿import 'dart:async';
+import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -8,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/auth_log_service.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/fcm_service.dart';
 import '../services/sysbooking_api_service.dart';
@@ -40,6 +42,7 @@ class _MePageState extends State<MePage> {
   bool _queueNotificationLoading = true;
   bool _queueNotificationSubmitting = false;
   bool _queueNotificationEnabled = false;
+  bool _authLogExporting = false;
   String? _email;
   String? _username;
   String? _announcement;
@@ -65,7 +68,9 @@ class _MePageState extends State<MePage> {
       }
     };
     QueueTabSettings.enabledNotifier.addListener(_queueTabListener);
-    _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((event) {
+    _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((
+      event,
+    ) {
       _applySession(event.session);
     });
   }
@@ -97,17 +102,57 @@ class _MePageState extends State<MePage> {
   }
 
   Future<void> _restoreAuth() async {
+    Session? session;
     try {
-      var session = SupabaseService.client.auth.currentSession;
+      session = SupabaseService.client.auth.currentSession;
       if (session != null && session.expiresAt != null) {
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         if (session.expiresAt! <= now) {
-          final refreshed = await SupabaseService.client.auth.refreshSession();
-          session = refreshed.session;
+          final sessionBeforeRefresh = session;
+          try {
+            final refreshed = await SupabaseService.client.auth
+                .refreshSession();
+            session = refreshed.session;
+            await AuthLogService.record(
+              event: 'session_refresh',
+              source: 'MePage._restoreAuth',
+              succeeded: session != null,
+              email: session?.user.email,
+              detail: session == null ? '认证服务未返回会话' : null,
+              session: session,
+              usedSession: sessionBeforeRefresh,
+            );
+          } catch (error) {
+            await AuthLogService.record(
+              event: 'session_refresh',
+              source: 'MePage._restoreAuth',
+              succeeded: false,
+              email: session?.user.email,
+              detail: AuthLogService.errorDetail(error),
+              usedSession: sessionBeforeRefresh,
+            );
+            rethrow;
+          }
         }
       }
+      await AuthLogService.record(
+        event: 'startup_session_check',
+        source: 'MePage._restoreAuth',
+        succeeded: true,
+        email: session?.user.email,
+        detail: session == null ? '未检测到登录会话' : '检测到有效登录会话',
+        session: session,
+      );
       _applySession(session);
-    } catch (_) {
+    } catch (error) {
+      await AuthLogService.record(
+        event: 'startup_session_check',
+        source: 'MePage._restoreAuth',
+        succeeded: false,
+        email: session?.user.email,
+        detail: AuthLogService.errorDetail(error),
+        session: session,
+      );
       _applySession(null);
     }
   }
@@ -131,13 +176,44 @@ class _MePageState extends State<MePage> {
     _applySession(null);
   }
 
+  Future<void> _exportAuthLog() async {
+    if (_authLogExporting) return;
+    setState(() => _authLogExporting = true);
+    try {
+      final exportedPath = await AuthLogService.export();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('登录日志已导出至 $exportedPath')));
+    } on StateError catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('导出登录日志失败')));
+    } finally {
+      if (mounted) {
+        setState(() => _authLogExporting = false);
+      }
+    }
+  }
+
   Future<void> _loadNotificationSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final notificationEnabled = prefs.getBool(_notificationEnabledKey) ?? false;
     final bookingOpenEnabled = prefs.getBool(_bookingOpenEnabledKey) ?? false;
-    final normalizedBookingOpenEnabled = notificationEnabled ? bookingOpenEnabled : false;
-    final queueNotificationEnabled = prefs.getBool(_queueNotificationEnabledKey) ?? false;
-    final normalizedQueueNotificationEnabled = notificationEnabled ? queueNotificationEnabled : false;
+    final normalizedBookingOpenEnabled = notificationEnabled
+        ? bookingOpenEnabled
+        : false;
+    final queueNotificationEnabled =
+        prefs.getBool(_queueNotificationEnabledKey) ?? false;
+    final normalizedQueueNotificationEnabled = notificationEnabled
+        ? queueNotificationEnabled
+        : false;
 
     if (!mounted) return;
     setState(() {
@@ -177,8 +253,9 @@ class _MePageState extends State<MePage> {
     bool allowFallback = true,
   }) async {
     try {
-      final currentToken = await FcmService.getCurrentToken()
-          .timeout(const Duration(seconds: 5));
+      final currentToken = await FcmService.getCurrentToken().timeout(
+        const Duration(seconds: 5),
+      );
       final normalizedCurrent = currentToken?.trim();
       if (normalizedCurrent != null && normalizedCurrent.isNotEmpty) {
         return normalizedCurrent;
@@ -301,10 +378,7 @@ class _MePageState extends State<MePage> {
         setState(() {
           _queueNotificationEnabled = true;
         });
-        await _saveQueueNotificationSettings(
-          enabled: true,
-          fcmToken: fcmToken,
-        );
+        await _saveQueueNotificationSettings(enabled: true, fcmToken: fcmToken);
       } else {
         final prefs = await SharedPreferences.getInstance();
         final cachedToken = prefs.getString(_queueNotificationFcmTokenKey);
@@ -519,32 +593,52 @@ class _MePageState extends State<MePage> {
               final password = _passwordController.text;
               if (email.isEmpty || password.isEmpty) {
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('请输入邮箱和密码')),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('请输入邮箱和密码')));
                 return;
               }
 
               setDialogState(() => _submitting = true);
 
               try {
-                final authResponse = await SupabaseService.client.auth.signInWithPassword(
+                final authResponse = await SupabaseService.client.auth
+                    .signInWithPassword(email: email, password: password);
+                await AuthLogService.record(
+                  event: 'password_sign_in',
+                  source: 'MePage._showLoginDialog',
+                  succeeded: authResponse.session != null,
                   email: email,
-                  password: password,
+                  detail: authResponse.session == null ? '认证服务未返回会话' : null,
+                  session: authResponse.session,
                 );
                 _applySession(authResponse.session);
                 if (!context.mounted) return;
                 Navigator.of(context).pop();
               } on AuthException catch (e) {
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(e.message)),
+                await AuthLogService.record(
+                  event: 'password_sign_in',
+                  source: 'MePage._showLoginDialog',
+                  succeeded: false,
+                  email: email,
+                  detail: e.message,
                 );
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(e.message)));
               } catch (e) {
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(e.toString())),
+                await AuthLogService.record(
+                  event: 'password_sign_in',
+                  source: 'MePage._showLoginDialog',
+                  succeeded: false,
+                  email: email,
+                  detail: AuthLogService.errorDetail(e),
                 );
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(e.toString())));
               } finally {
                 if (context.mounted) {
                   setDialogState(() => _submitting = false);
@@ -575,7 +669,9 @@ class _MePageState extends State<MePage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+                  onPressed: _submitting
+                      ? null
+                      : () => Navigator.of(context).pop(),
                   child: const Text('取消'),
                 ),
                 FilledButton(
@@ -636,7 +732,9 @@ class _MePageState extends State<MePage> {
   Widget _buildAccountSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
     final avatarBg = isDark ? const Color(0xFF3A2A35) : const Color(0xFFFFEAF4);
     final avatarFg = isDark ? const Color(0xFFFF8BC8) : const Color(0xFFFF5DAF);
@@ -647,25 +745,24 @@ class _MePageState extends State<MePage> {
           color: cardBg,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Column(children: [
-          const ListTile(
-            leading: Icon(Icons.account_circle_outlined),
-            title: Text(
-              '账号',
-              style: TextStyle(fontWeight: FontWeight.w800),
+        child: Column(
+          children: [
+            const ListTile(
+              leading: Icon(Icons.account_circle_outlined),
+              title: Text('账号', style: TextStyle(fontWeight: FontWeight.w800)),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _showLoginDialog,
-                child: const Text('登录'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _showLoginDialog,
+                  child: const Text('登录'),
+                ),
               ),
             ),
-          ),
-        ]),
+          ],
+        ),
       );
     }
 
@@ -716,7 +813,9 @@ class _MePageState extends State<MePage> {
   Widget _buildNoticeSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
     final text = (_announcement ?? '').trim();
@@ -727,7 +826,10 @@ class _MePageState extends State<MePage> {
       ),
       child: ListTile(
         leading: const Icon(Icons.campaign_outlined),
-        title: Text('公告', style: TextStyle(fontWeight: FontWeight.w800, color: titleColor)),
+        title: Text(
+          '公告',
+          style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
+        ),
         subtitle: Text(
           text.isEmpty ? '暂无公告' : text,
           style: TextStyle(color: subColor),
@@ -739,7 +841,9 @@ class _MePageState extends State<MePage> {
   Widget _buildMetaSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
     return Container(
@@ -752,28 +856,65 @@ class _MePageState extends State<MePage> {
         children: [
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: Text('版本号', style: TextStyle(fontWeight: FontWeight.w800, color: titleColor)),
+            title: Text(
+              '版本号',
+              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
+            ),
             subtitle: Text(_appVersion, style: TextStyle(color: subColor)),
           ),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
-            title: Text('原版及后端作者：鱼七', style: TextStyle(fontWeight: FontWeight.w700, color: titleColor)),
-            subtitle: Text('本改版作者：wenwen12305', style: TextStyle(color: subColor)),
-          ),
-          ListTile(
-            leading: const Icon(Icons.open_in_new_outlined),
-            title: Text('访问项目github', style: TextStyle(fontWeight: FontWeight.w700, color: titleColor)),
+            title: Text(
+              '原版及后端作者：鱼七',
+              style: TextStyle(fontWeight: FontWeight.w700, color: titleColor),
+            ),
             subtitle: Text(
-              'ucrvk/suki',
+              '本改版作者：wenwen12305',
               style: TextStyle(color: subColor),
             ),
+          ),
+          if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+            ListTile(
+              leading: const Icon(Icons.download_outlined),
+              title: Text(
+                '导出登录日志',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: titleColor,
+                ),
+              ),
+              subtitle: Text(
+                '导出登录、令牌刷新和登录态检测记录',
+                style: TextStyle(color: subColor),
+              ),
+              trailing: _authLogExporting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.chevron_right),
+              onTap: _authLogExporting ? null : _exportAuthLog,
+            ),
+          ListTile(
+            leading: const Icon(Icons.open_in_new_outlined),
+            title: Text(
+              '访问项目github',
+              style: TextStyle(fontWeight: FontWeight.w700, color: titleColor),
+            ),
+            subtitle: Text('ucrvk/suki', style: TextStyle(color: subColor)),
             trailing: const Icon(Icons.chevron_right),
             onTap: () async {
               final uri = Uri.parse('https://github.com/ucrvk/suki');
-              final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+              final opened = await launchUrl(
+                uri,
+                mode: LaunchMode.externalApplication,
+              );
               if (opened) return;
 
-              await Clipboard.setData(const ClipboardData(text: 'https://github.com/ucrvk/suki'));
+              await Clipboard.setData(
+                const ClipboardData(text: 'https://github.com/ucrvk/suki'),
+              );
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('无法直接打开浏览器，已复制链接到剪贴板')),
@@ -782,14 +923,14 @@ class _MePageState extends State<MePage> {
           ),
           ListTile(
             leading: const Icon(Icons.gavel_outlined),
-            title: Text('开源使用', style: TextStyle(fontWeight: FontWeight.w800, color: titleColor)),
+            title: Text(
+              '开源使用',
+              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
+            ),
             subtitle: Text('查看开源许可', style: TextStyle(color: subColor)),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
-              showLicensePage(
-                context: context,
-                applicationName: 'suki',
-              );
+              showLicensePage(context: context, applicationName: 'suki');
             },
           ),
         ],
@@ -800,7 +941,9 @@ class _MePageState extends State<MePage> {
   Widget _buildNotificationSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
     return Container(
@@ -831,12 +974,11 @@ class _MePageState extends State<MePage> {
             SwitchListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               title: const Text('通知总开关'),
-              subtitle: Text(
-                '开启后可接收系统通知',
-                style: TextStyle(color: subColor),
-              ),
+              subtitle: Text('开启后可接收系统通知', style: TextStyle(color: subColor)),
               value: _notificationEnabled,
-              onChanged: _notificationSubmitting ? null : _setNotificationEnabled,
+              onChanged: _notificationSubmitting
+                  ? null
+                  : _setNotificationEnabled,
             ),
             SwitchListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
@@ -850,25 +992,29 @@ class _MePageState extends State<MePage> {
                   ? null
                   : _setBookingOpenEnabled,
             ),
-              if (QueueTabSettings.enabledNotifier.value)
-                SwitchListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  title: const Text('排队通知'),
-                  subtitle: Text(
-                    _queueNotificationLoading
-                        ? '正在恢复排队通知状态'
-                        : !_notificationEnabled
-                            ? '请先打开通知总开关'
-                        : _queueNotificationEnabled
-                            ? '已同步排队相关通知'
-                            : '开启后会先发送当前设备的 FCM token',
-                    style: TextStyle(color: subColor),
-                  ),
-                  value: _queueNotificationEnabled,
-                  onChanged: (_queueNotificationLoading || _queueNotificationSubmitting || !_notificationEnabled)
-                      ? null
-                      : (enabled) => unawaited(_setQueueNotificationEnabled(enabled)),
+            if (QueueTabSettings.enabledNotifier.value)
+              SwitchListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: const Text('排队通知'),
+                subtitle: Text(
+                  _queueNotificationLoading
+                      ? '正在恢复排队通知状态'
+                      : !_notificationEnabled
+                      ? '请先打开通知总开关'
+                      : _queueNotificationEnabled
+                      ? '已同步排队相关通知'
+                      : '开启后会先发送当前设备的 FCM token',
+                  style: TextStyle(color: subColor),
                 ),
+                value: _queueNotificationEnabled,
+                onChanged:
+                    (_queueNotificationLoading ||
+                        _queueNotificationSubmitting ||
+                        !_notificationEnabled)
+                    ? null
+                    : (enabled) =>
+                          unawaited(_setQueueNotificationEnabled(enabled)),
+              ),
             const SizedBox(height: 8),
           ],
         ],
@@ -879,7 +1025,9 @@ class _MePageState extends State<MePage> {
   Widget _buildQueueSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark ? const Color(0xFFF1EAF8) : const Color(0xFF3A3250);
+    final titleColor = isDark
+        ? const Color(0xFFF1EAF8)
+        : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
     return Container(
@@ -897,11 +1045,15 @@ class _MePageState extends State<MePage> {
               style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
             ),
             subtitle: Text(
-              QueueTabSettings.enabledNotifier.value ? '底栏将显示排队入口' : '打开后在底栏左侧显示排队入口',
+              QueueTabSettings.enabledNotifier.value
+                  ? '底栏将显示排队入口'
+                  : '打开后在底栏左侧显示排队入口',
               style: TextStyle(color: subColor),
             ),
             value: QueueTabSettings.enabledNotifier.value,
-            onChanged: _notificationSubmitting ? null : (enabled) => unawaited(QueueTabSettings.setEnabled(enabled)),
+            onChanged: _notificationSubmitting
+                ? null
+                : (enabled) => unawaited(QueueTabSettings.setEnabled(enabled)),
           ),
           const SizedBox(height: 8),
         ],
