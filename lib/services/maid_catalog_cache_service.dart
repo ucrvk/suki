@@ -3,6 +3,7 @@ import 'dart:async';
 import 'maid_content_cache_store.dart';
 import 'maid_image_manifest_service.dart';
 import 'supabase_service.dart';
+import '../utils/time_slot_availability.dart';
 
 class MaidCatalogSnapshot {
   const MaidCatalogSnapshot({
@@ -51,7 +52,9 @@ class MaidCatalogCacheService {
     return snapshot;
   }
 
-  static Future<MaidCatalogSnapshot> getSnapshot({bool forceRefresh = false}) async {
+  static Future<MaidCatalogSnapshot> getSnapshot({
+    bool forceRefresh = false,
+  }) async {
     if (!forceRefresh) {
       if (_snapshot != null) {
         await MaidImageManifestService.fetchManifest(forceRefresh: false);
@@ -81,36 +84,25 @@ class MaidCatalogCacheService {
   static Future<MaidCatalogSnapshot> _fetchAndCacheSnapshot() async {
     await MaidImageManifestService.fetchManifest(forceRefresh: true);
 
-    final results = await Future.wait([
-      SupabaseService.client.from('suki_booking').select('maids').limit(1),
-      SupabaseService.client.from('suki_booking').select('reservations').limit(1),
-      SupabaseService.client.from('suki_booking').select('time_slots').limit(1),
-      SupabaseService.client.from('suki_booking').select('booking_enabled,announcement').limit(1),
-    ]);
-
-    final maidsRows = results[0];
-    final reservationsRows = results[1];
-    final timeSlotsRows = results[2];
-    final metaRows = results[3];
-
-    if (maidsRows.isEmpty || reservationsRows.isEmpty || timeSlotsRows.isEmpty || metaRows.isEmpty) {
+    final rows = await SupabaseService.client
+        .from('suki_booking')
+        .select('*')
+        .limit(1);
+    if (rows.isEmpty) {
       throw Exception('返回数据为空');
     }
 
-    final maidsFirst = Map<String, dynamic>.from(maidsRows.first);
-    final reservationsFirst = Map<String, dynamic>.from(reservationsRows.first);
-    final timeSlotsFirst = Map<String, dynamic>.from(timeSlotsRows.first);
-    final metaFirst = Map<String, dynamic>.from(metaRows.first);
+    final first = Map<String, dynamic>.from(rows.first);
 
-    final maids = ((maidsFirst['maids'] as List?) ?? const [])
+    final maids = ((first['maids'] as List?) ?? const [])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
-    final reservations = ((reservationsFirst['reservations'] as List?) ?? const [])
+    final reservations = ((first['reservations'] as List?) ?? const [])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
-    final timeSlots = ((timeSlotsFirst['time_slots'] as List?) ?? const [])
+    final timeSlots = ((first['time_slots'] as List?) ?? const [])
         .map((e) => e.toString().trim())
         .where((e) => e.isNotEmpty)
         .toList();
@@ -119,8 +111,8 @@ class MaidCatalogCacheService {
       maids: maids,
       reservations: reservations,
       timeSlots: timeSlots,
-      bookingEnabled: metaFirst['booking_enabled'] == true,
-      announcement: (metaFirst['announcement'] ?? '').toString().trim(),
+      bookingEnabled: first['booking_enabled'] == true,
+      announcement: (first['announcement'] ?? '').toString().trim(),
       fetchedAt: DateTime.now(),
     );
 
@@ -187,6 +179,11 @@ class MaidCatalogCacheService {
 
     for (final maid in maids) {
       final normalized = Map<String, dynamic>.from(maid);
+      if (normalized.containsKey('disabledTimeSlots')) {
+        normalized['disabledTimeSlots'] = normalizeDisabledTimeSlots(
+          normalized['disabledTimeSlots'],
+        ).toList();
+      }
       final vrcid = (normalized['vrcid'] ?? '').toString().trim();
       if (vrcid.isEmpty) {
         normalized.remove('image');
@@ -218,7 +215,9 @@ class MaidCatalogCacheService {
     );
   }
 
-  static MaidCatalogSnapshot _normalizeSnapshotImages(MaidCatalogSnapshot snapshot) {
+  static MaidCatalogSnapshot _normalizeSnapshotImages(
+    MaidCatalogSnapshot snapshot,
+  ) {
     final maids = snapshot.maids.map((maid) {
       final normalized = Map<String, dynamic>.from(maid);
       final vrcid = (normalized['vrcid'] ?? '').toString().trim();
@@ -244,7 +243,9 @@ class MaidCatalogCacheService {
     final name = (maid['name'] ?? '').toString().trim();
     if (name == '鱼七') return true;
 
-    final tags = (maid['tags'] as List?)?.map((e) => e.toString()).toList() ?? const <String>[];
+    final tags =
+        (maid['tags'] as List?)?.map((e) => e.toString()).toList() ??
+        const <String>[];
     return tags.any((tag) => tag.contains('前台'));
   }
 }

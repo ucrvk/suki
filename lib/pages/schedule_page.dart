@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -7,6 +7,7 @@ import '../app_shell.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../utils/display_name.dart';
+import '../utils/time_slot_availability.dart';
 import '../widgets/main_app_bar.dart';
 
 class _ReservationEntry {
@@ -262,6 +263,9 @@ class _SchedulePageState extends State<SchedulePage> {
                         child: _buildMaidCard(
                           maid: maid,
                           timeSlots: snapshot.timeSlots,
+                          disabledTimeSlots: normalizeDisabledTimeSlots(
+                            maid['disabledTimeSlots'],
+                          ),
                           appointments:
                               appointmentsByMaid[(maid['vrcid'] ?? '')
                                   .toString()
@@ -531,6 +535,7 @@ class _SchedulePageState extends State<SchedulePage> {
   Widget _buildMaidCard({
     required Map<String, dynamic> maid,
     required List<String> timeSlots,
+    required Set<String> disabledTimeSlots,
     required List<_ReservationEntry> appointments,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -558,7 +563,17 @@ class _SchedulePageState extends State<SchedulePage> {
     final bookedCount = slotToAppointments.values
         .where((list) => list.isNotEmpty)
         .length;
-    final isFull = timeSlots.isNotEmpty && bookedCount >= timeSlots.length;
+    final bookableSlotCount = timeSlots
+        .where((slot) => !disabledTimeSlots.contains(slot))
+        .length;
+    final bookedBookableCount = slotToAppointments.entries
+        .where(
+          (entry) =>
+              !disabledTimeSlots.contains(entry.key) && entry.value.isNotEmpty,
+        )
+        .length;
+    final isFull =
+        bookableSlotCount > 0 && bookedBookableCount >= bookableSlotCount;
     final maidName = (maid['name'] ?? '').toString().trim();
 
     return Container(
@@ -620,7 +635,11 @@ class _SchedulePageState extends State<SchedulePage> {
             Text('今日未配置时段', style: TextStyle(color: mutedColor))
           else
             for (final slot in timeSlots) ...[
-              _buildSlotLine(slot, slotToAppointments[slot] ?? const []),
+              _buildSlotLine(
+                slot,
+                slotToAppointments[slot] ?? const [],
+                disabledTimeSlots.contains(slot),
+              ),
               const SizedBox(height: 8),
             ],
         ],
@@ -628,7 +647,11 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Widget _buildSlotLine(String slot, List<_ReservationEntry> list) {
+  Widget _buildSlotLine(
+    String slot,
+    List<_ReservationEntry> list,
+    bool disabledTimeSlot,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final lineBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFFFF3F8);
     final normalText = isDark
@@ -638,12 +661,13 @@ class _SchedulePageState extends State<SchedulePage> {
         ? const Color(0xFF9A8FA4)
         : const Color(0xFF9A8FA4);
     final booked = list.isNotEmpty;
+    final notOperating = disabledTimeSlot && !booked;
     final first = booked ? list.first : null;
     final withFriend = booked && first!.withFriend;
 
     String guestText;
     if (!booked) {
-      guestText = '空闲';
+      guestText = notOperating ? '该时段不营业' : '空闲';
     } else {
       final base = (first!.guest.isEmpty ? '匿名' : first.guest);
       guestText = base;
@@ -672,7 +696,7 @@ class _SchedulePageState extends State<SchedulePage> {
             child: Row(
               children: [
                 Icon(
-                  Icons.person,
+                  notOperating ? Icons.event_busy_outlined : Icons.person,
                   size: 18,
                   color: booked
                       ? const Color(0xFF6A4D93)

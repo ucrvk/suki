@@ -8,6 +8,7 @@ import '../app_shell.dart';
 import '../services/booking_service.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
+import '../utils/time_slot_availability.dart';
 import '../widgets/main_app_bar.dart';
 import '../widgets/maid_card.dart';
 import '../widgets/random_maid_dialog.dart';
@@ -38,8 +39,6 @@ class BookingPage extends StatefulWidget {
 }
 
 class _BookingPageState extends State<BookingPage> {
-  static const _fullThreshold = 2;
-
   bool _loading = true;
   String? _error;
   bool _bookingEnabled = true;
@@ -256,6 +255,14 @@ class _BookingPageState extends State<BookingPage> {
         .toSet();
   }
 
+  Set<String> _disabledTimeSlotsFor(Map<String, dynamic> maid) {
+    return normalizeDisabledTimeSlots(maid['disabledTimeSlots']);
+  }
+
+  List<String> _bookableTimeSlotsFor(Map<String, dynamic> maid) {
+    return availableTimeSlots(_timeSlots, _disabledTimeSlotsFor(maid));
+  }
+
   Future<void> _refreshMaidsInBackground() async {
     try {
       final snapshot = await MaidCatalogCacheService.refreshSnapshot();
@@ -280,27 +287,19 @@ class _BookingPageState extends State<BookingPage> {
     return (maid['vrcid'] ?? '').toString().trim();
   }
 
-  int _reservationCountForMaid(Map<String, dynamic> maid) {
-    final vrcid = (maid['vrcid'] ?? '').toString().trim();
-    final name = (maid['name'] ?? '').toString().trim();
-    int count = 0;
-    for (final reservation in _reservations) {
-      final resVrcid = (reservation['maidVrcid'] ?? '').toString().trim();
-      final resName = (reservation['maidName'] ?? '').toString().trim();
-      final matchByVrcid = vrcid.isNotEmpty && resVrcid == vrcid;
-      final matchByName = vrcid.isEmpty && name.isNotEmpty && resName == name;
-      if (matchByVrcid || matchByName) count++;
-    }
-    return count;
-  }
-
   MaidStatus _statusForMaid(Map<String, dynamic> maid) {
     if (widget.forceAllBookableForTest) return MaidStatus.available;
     final disabled = maid['disabled'] == true;
-    if (!_bookingEnabled || disabled || _timeSlots.isEmpty) {
+    if (!_bookingEnabled || disabled || _bookableTimeSlotsFor(maid).isEmpty) {
       return MaidStatus.closed;
     }
-    if (_reservationCountForMaid(maid) >= _fullThreshold) {
+    final maidVrcid = (maid['vrcid'] ?? '').toString().trim();
+    if (areAllBookableTimeSlotsBooked(
+      timeSlots: _timeSlots,
+      disabledTimeSlots: _disabledTimeSlotsFor(maid),
+      bookedSlotKeys: _bookedSlotKeys,
+      maidVrcid: maidVrcid,
+    )) {
       return MaidStatus.full;
     }
     return MaidStatus.available;
@@ -407,7 +406,9 @@ class _BookingPageState extends State<BookingPage> {
     final myBookedSlots = _bookedSlotsByUserId(myUserId);
 
     final maidVrcid = (item.maid['vrcid'] ?? '').toString().trim();
-    final availableSlots = _timeSlots
+    final disabledTimeSlots = _disabledTimeSlotsFor(item.maid);
+    final bookableTimeSlots = availableTimeSlots(_timeSlots, disabledTimeSlots);
+    final availableSlots = bookableTimeSlots
         .where(
           (slot) =>
               !_bookedSlotKeys.contains('$maidVrcid|$slot') &&
@@ -415,9 +416,12 @@ class _BookingPageState extends State<BookingPage> {
         )
         .toList();
     if (availableSlots.isEmpty) {
+      final message = bookableTimeSlots.isEmpty
+          ? '今日没有可营业的预约时段'
+          : '该女仆可选时段已满，或你在该时段已有预约';
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('该女仆可选时段已满，或你在该时段已有预约')));
+      ).showSnackBar(SnackBar(content: Text(message)));
       return;
     }
 
@@ -458,10 +462,14 @@ class _BookingPageState extends State<BookingPage> {
                           '$maidVrcid|$slot',
                         );
                         final alreadyBookedByMe = myBookedSlots.contains(slot);
-                        final disabled = booked || alreadyBookedByMe;
+                        final notOperating = disabledTimeSlots.contains(slot);
+                        final disabled =
+                            notOperating || booked || alreadyBookedByMe;
                         return ChoiceChip(
                           label: Text(
-                            booked
+                            notOperating
+                                ? '$slot（该时段不营业）'
+                                : booked
                                 ? '$slot（已约）'
                                 : alreadyBookedByMe
                                 ? '$slot（你已约）'
@@ -504,6 +512,12 @@ class _BookingPageState extends State<BookingPage> {
                       width: double.infinity,
                       child: FilledButton(
                         onPressed: () {
+                          if (!availableSlots.contains(selectedSlot)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('所选时段暂不可预约')),
+                            );
+                            return;
+                          }
                           if (withFriend &&
                               friendVrcidController.text.trim().isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -526,6 +540,14 @@ class _BookingPageState extends State<BookingPage> {
     );
 
     if (confirmed != true) return;
+
+    if (!availableSlots.contains(selectedSlot)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('所选时段暂不可预约')));
+      return;
+    }
 
     final submitKey = '${item.uniqueId}|$selectedSlot';
     setState(() {
