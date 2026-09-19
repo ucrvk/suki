@@ -1,11 +1,12 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseService {
   SupabaseService._();
 
   static const String supabaseUrl = 'https://uzlzkjuijruqanetagxh.supabase.co';
-  static const String supabaseAnonKey = 'sb_publishable_6_fvEEW8e1DNGvtVhXPzxw_h2i04w7b';
+  static const String supabaseAnonKey =
+      'sb_publishable_6_fvEEW8e1DNGvtVhXPzxw_h2i04w7b';
   static const String _userAgentPrefix = 'sukiApp';
   static const String _userAgentSuffix = 'admin@wenwen12305.top';
 
