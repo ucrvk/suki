@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/roster_entry.dart';
 import '../services/roster_service.dart';
+import '../theme/app_colors.dart';
 
 abstract interface class RosterDataSource {
   Future<RosterSnapshot?> loadCached();
@@ -42,9 +43,6 @@ class RosterPage extends StatefulWidget {
 }
 
 class _RosterPageState extends State<RosterPage> {
-  static const _cardColor = Color(0xFF33205C);
-  static const _accentColor = Color(0xFF9B78D1);
-  static const _mutedColor = Color(0xFFC4B4DC);
 
   final ScrollController _scrollController = ScrollController();
   late final RosterDataSource _dataSource;
@@ -215,9 +213,9 @@ class _RosterPageState extends State<RosterPage> {
         '${session.scriptName}-${session.sessionAt.toUtc().toIso8601String()}',
       ),
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFF4A2F80)),
+        border: Border.all(color: AppColors.outline),
         boxShadow: const [
           BoxShadow(
             color: Color(0x33000000),
@@ -237,13 +235,13 @@ class _RosterPageState extends State<RosterPage> {
           const SizedBox(height: 8),
           Row(
             children: [
-              const Icon(Icons.schedule_rounded, size: 18, color: _accentColor),
+              const Icon(Icons.schedule_rounded, size: 18, color: AppColors.accent),
               const SizedBox(width: 7),
               Expanded(
                 child: Text(
                   formatSessionTime(localStart, localEnd),
                   style: const TextStyle(
-                    color: _mutedColor,
+                    color: AppColors.textMuted,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -251,7 +249,7 @@ class _RosterPageState extends State<RosterPage> {
             ],
           ),
           const SizedBox(height: 14),
-          const Divider(height: 1, color: Color(0xFF5B3C8D)),
+          const Divider(height: 1, color: AppColors.divider),
           for (final entry in session.entries) _buildBooking(entry),
         ],
       ),
@@ -269,7 +267,7 @@ class _RosterPageState extends State<RosterPage> {
             width: 38,
             height: 38,
             decoration: const BoxDecoration(
-              color: Color(0xFF4A2F80),
+              color: AppColors.field,
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
@@ -294,7 +292,7 @@ class _RosterPageState extends State<RosterPage> {
                     Text(
                       '${entry.guests} 人',
                       style: const TextStyle(
-                        color: _accentColor,
+                        color: AppColors.accent,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -310,7 +308,7 @@ class _RosterPageState extends State<RosterPage> {
                         Chip(
                           visualDensity: VisualDensity.compact,
                           side: BorderSide.none,
-                          backgroundColor: const Color(0xFF4A2F80),
+                          backgroundColor: AppColors.field,
                           avatar: const Icon(Icons.person_outline, size: 16),
                           label: Text(companion),
                         ),
@@ -365,7 +363,7 @@ class _MessageState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 50, color: _RosterPageState._mutedColor),
+            Icon(icon, size: 50, color: AppColors.textMuted),
             const SizedBox(height: 16),
             Text(
               title,
@@ -375,7 +373,7 @@ class _MessageState extends StatelessWidget {
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: _RosterPageState._mutedColor),
+              style: const TextStyle(color: AppColors.textMuted),
             ),
             if (onAction != null && actionLabel != null) ...[
               const SizedBox(height: 18),

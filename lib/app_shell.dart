@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'pages/booking_page.dart';
 import 'pages/me_page.dart';
-import 'pages/placeholder_page.dart';
 import 'pages/roster_page.dart';
 import 'pages/world_page.dart';
 import 'services/account_service.dart';
@@ -9,12 +9,14 @@ import 'services/account_service.dart';
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
+    this.bookingDataSource,
     this.rosterDataSource,
     this.worldDataSource,
     this.authService,
     this.profileService,
   });
 
+  final BookingDataSource? bookingDataSource;
   final RosterDataSource? rosterDataSource;
   final WorldDataSource? worldDataSource;
   final AccountAuthService? authService;
@@ -27,6 +29,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   static const _doubleTapWindow = Duration(milliseconds: 300);
 
+  final BookingPageController _bookingController = BookingPageController();
   final RosterPageController _rosterController = RosterPageController();
   final WorldPageController _worldController = WorldPageController();
   int _currentIndex = 0;
@@ -39,24 +42,30 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
-    if (index != 0 && index != 2) return;
+    if (index == 3) return;
     final now = DateTime.now();
     final lastReselectAt = _lastReselectAt[index];
     final shouldRefresh =
         lastReselectAt != null &&
         now.difference(lastReselectAt) <= _doubleTapWindow;
     if (shouldRefresh) {
-      if (index == 0) {
-        _rosterController.refresh();
-      } else {
-        _worldController.refresh();
+      switch (index) {
+        case 0:
+          _bookingController.refresh();
+        case 1:
+          _rosterController.refresh();
+        case 2:
+          _worldController.refresh();
       }
       _lastReselectAt.remove(index);
     } else {
-      if (index == 0) {
-        _rosterController.scrollToTop();
-      } else {
-        _worldController.scrollToTop();
+      switch (index) {
+        case 0:
+          _bookingController.scrollToTop();
+        case 1:
+          _rosterController.scrollToTop();
+        case 2:
+          _worldController.scrollToTop();
       }
       _lastReselectAt[index] = now;
     }
@@ -68,13 +77,13 @@ class _AppShellState extends State<AppShell> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
+          BookingPage(
+            controller: _bookingController,
+            dataSource: widget.bookingDataSource,
+          ),
           RosterPage(
             controller: _rosterController,
             dataSource: widget.rosterDataSource,
-          ),
-          const PlaceholderPage(
-            title: '预约',
-            icon: Icons.calendar_month_outlined,
           ),
           WorldPage(
             controller: _worldController,
@@ -91,13 +100,14 @@ class _AppShellState extends State<AppShell> {
         onDestinationSelected: _selectTab,
         destinations: const [
           NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month_rounded),
+            label: '预约',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.event_note_outlined),
             selectedIcon: Icon(Icons.event_note_rounded),
             label: '排班',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            label: '预约',
           ),
           NavigationDestination(
             icon: Icon(Icons.public_outlined),

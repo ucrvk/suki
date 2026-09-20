@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/account_service.dart';
+import '../theme/app_colors.dart';
 
 class AccountSettingsPage extends StatefulWidget {
   const AccountSettingsPage({
@@ -19,7 +20,6 @@ class AccountSettingsPage extends StatefulWidget {
 }
 
 class _AccountSettingsPageState extends State<AccountSettingsPage> {
-  static const _cardColor = Color(0xFF33205C);
 
   final _usernameController = TextEditingController();
   final _qqNameController = TextEditingController();
@@ -136,7 +136,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('账户设置'),
-        backgroundColor: const Color(0xFF1F1338),
+        backgroundColor: AppColors.background,
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
@@ -152,9 +152,9 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   Widget _buildProfileCard() {
     return Container(
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFF4A2F80)),
+        border: Border.all(color: AppColors.outline),
       ),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Column(
@@ -220,9 +220,9 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   Widget _buildPasswordCard() {
     return Container(
       decoration: BoxDecoration(
-        color: _cardColor,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFF4A2F80)),
+        border: Border.all(color: AppColors.outline),
       ),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Column(

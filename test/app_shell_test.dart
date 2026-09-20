@@ -1,21 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suki/app_shell.dart';
+import 'package:suki/models/booking_script_entry.dart';
 import 'package:suki/models/roster_entry.dart';
+import 'package:suki/pages/booking_page.dart';
 import 'package:suki/pages/roster_page.dart';
 import 'package:suki/pages/world_page.dart';
 import 'package:suki/services/account_service.dart';
 import 'package:suki/services/roster_service.dart';
 import 'package:suki/services/world_content_service.dart';
+import 'package:suki/theme/app_colors.dart';
 
 void main() {
-  testWidgets('shows grouped roster and switches to placeholder tabs', (
+  testWidgets('shows booking list, grouped roster and switches tabs', (
     tester,
   ) async {
     final source = _FakeDataSource(_sampleSnapshot());
     await tester.pumpWidget(
       _testApp(
         AppShell(
+          bookingDataSource: _FakeBookingDataSource(),
           rosterDataSource: source,
           worldDataSource: _EmptyWorldDataSource(),
           authService: _ShellAuthService(),
@@ -25,15 +29,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('雾雨之城'), findsOneWidget);
+    expect(find.byKey(const Key('booking-apply-button')), findsOneWidget);
+
+    await tester.tap(find.text('排班').last);
+    await tester.pumpAndSettle();
     expect(find.text('夜眠花'), findsOneWidget);
     expect(find.text('无忧无虑的狼'), findsOneWidget);
     expect(find.text('天子tenko'), findsOneWidget);
     expect(find.text('DMW'), findsOneWidget);
     expect(find.text('肆安_Sensei'), findsOneWidget);
-
-    await tester.tap(find.text('预约').last);
-    await tester.pumpAndSettle();
-    expect(find.text('功能建设中'), findsOneWidget);
 
     await tester.tap(find.text('世界').last);
     await tester.pumpAndSettle();
@@ -69,7 +74,7 @@ void main() {
 Widget _testApp(Widget child) => MaterialApp(
   theme: ThemeData.dark(
     useMaterial3: true,
-  ).copyWith(scaffoldBackgroundColor: const Color(0xFF1F1338)),
+  ).copyWith(scaffoldBackgroundColor: AppColors.background),
   home: child,
 );
 
@@ -110,6 +115,20 @@ class _FakeDataSource implements RosterDataSource {
 
   @override
   Future<RosterSnapshot> refresh() async => snapshot;
+}
+
+class _FakeBookingDataSource implements BookingDataSource {
+  @override
+  Future<List<BookingScriptEntry>> fetchScripts() async => const [
+    BookingScriptEntry(
+      id: 'script-1',
+      name: '雾雨之城',
+      description: '示例剧本简介',
+      imageUrl: '',
+      sort: 1,
+      tags: ['剧情'],
+    ),
+  ];
 }
 
 class _FailingDataSource implements RosterDataSource {

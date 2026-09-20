@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 
 class MaidContentCacheStore {
   MaidContentCacheStore._();
@@ -16,13 +19,29 @@ class MaidContentCacheStore {
 
     _initializing = () async {
       await Hive.initFlutter();
-      _box = await Hive.openBox<dynamic>(boxName);
+      _box = await _openBoxWithRetry();
     }();
 
     try {
       await _initializing;
     } finally {
       _initializing = null;
+    }
+  }
+
+  static Future<Box<dynamic>> _openBoxWithRetry() async {
+    try {
+      return await Hive.openBox<dynamic>(boxName);
+    } on FileSystemException catch (e) {
+      if (e.message.contains('lock')) {
+        final dir = await getApplicationDocumentsDirectory();
+        final lockFile = File('${dir.path}/$boxName.lock');
+        if (await lockFile.exists()) {
+          await lockFile.delete();
+        }
+        return await Hive.openBox<dynamic>(boxName);
+      }
+      rethrow;
     }
   }
 

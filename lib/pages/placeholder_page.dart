@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
 
 class PlaceholderPage extends StatelessWidget {
   const PlaceholderPage({required this.title, required this.icon, super.key});
@@ -13,11 +14,11 @@ class PlaceholderPage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 52, color: const Color(0xFFBFA8E8)),
+            Icon(icon, size: 52, color: AppColors.accentSoft),
             const SizedBox(height: 18),
             Text(title, style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
-            const Text('功能建设中', style: TextStyle(color: Color(0xFFBFA8E8))),
+            const Text('功能建设中', style: TextStyle(color: AppColors.accentSoft)),
           ],
         ),
       ),

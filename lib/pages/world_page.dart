@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/world_content_entry.dart';
 import '../services/world_content_service.dart';
+import '../theme/app_colors.dart';
 
 enum WorldSection { witch, lore, endings }
 
@@ -55,9 +56,6 @@ class WorldPage extends StatefulWidget {
 
 class _WorldPageState extends State<WorldPage>
     with SingleTickerProviderStateMixin {
-  static const _cardColor = Color(0xFF33205C);
-  static const _accentColor = Color(0xFF9B78D1);
-  static const _mutedColor = Color(0xFFC4B4DC);
 
   late final TabController _tabController;
   late final WorldDataSource _dataSource;
@@ -253,10 +251,10 @@ class _WorldPageState extends State<WorldPage>
           ),
           TabBar(
             controller: _tabController,
-            indicatorColor: _accentColor,
-            labelColor: Colors.white,
-            unselectedLabelColor: _mutedColor,
-            dividerColor: const Color(0xFF4A2F80),
+            indicatorColor: AppColors.accent,
+            labelColor: AppColors.textPrimary,
+            unselectedLabelColor: AppColors.textMuted,
+            dividerColor: AppColors.outline,
             tabs: const [
               Tab(text: '魔女图鉴'),
               Tab(text: '世界观'),
@@ -408,9 +406,9 @@ class _WorldPageState extends State<WorldPage>
       onTap: () => _showDetails(entry),
       child: Container(
         decoration: BoxDecoration(
-          color: _cardColor,
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: const Color(0xFF4A2F80)),
+          border: Border.all(color: AppColors.outline),
         ),
         padding: const EdgeInsets.all(14),
         child: Row(
@@ -435,7 +433,7 @@ class _WorldPageState extends State<WorldPage>
                       entry.subtitle,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _mutedColor, height: 1.35),
+                      style: const TextStyle(color: AppColors.textMuted, height: 1.35),
                     ),
                   ],
                   if (entry.tags.isNotEmpty) ...[
@@ -447,7 +445,7 @@ class _WorldPageState extends State<WorldPage>
             ),
             const Padding(
               padding: EdgeInsets.only(left: 6, top: 2),
-              child: Icon(Icons.chevron_right_rounded, color: _mutedColor),
+              child: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
             ),
           ],
         ),
@@ -464,13 +462,13 @@ class _WorldPageState extends State<WorldPage>
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
         decoration: BoxDecoration(
-          color: _cardColor,
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFF4A2F80)),
+          border: Border.all(color: AppColors.outline),
         ),
         child: Row(
           children: [
-            const Icon(Icons.visibility_outlined, color: _accentColor),
+            const Icon(Icons.visibility_outlined, color: AppColors.accent),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -489,13 +487,13 @@ class _WorldPageState extends State<WorldPage>
                       entry.subtitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _mutedColor),
+                      style: const TextStyle(color: AppColors.textMuted),
                     ),
                   ],
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: _mutedColor),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
           ],
         ),
       ),
@@ -507,7 +505,7 @@ class _WorldPageState extends State<WorldPage>
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      backgroundColor: const Color(0xFF271847),
+      backgroundColor: AppColors.surfaceElevated,
       builder: (context) => FractionallySizedBox(
         heightFactor: 0.9,
         child: _WorldDetailSheet(entry: entry),
@@ -569,7 +567,7 @@ class _WorldDetailSheetState extends State<_WorldDetailSheet> {
               Text(
                 '${_page + 1}/${images.length}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: _WorldPageState._mutedColor),
+                style: const TextStyle(color: AppColors.textMuted),
               ),
             ],
             const SizedBox(height: 18),
@@ -577,7 +575,7 @@ class _WorldDetailSheetState extends State<_WorldDetailSheet> {
           if (entry.kind == WorldContentKind.ending)
             Text(
               entry.script,
-              style: const TextStyle(color: _WorldPageState._accentColor),
+              style: const TextStyle(color: AppColors.accent),
             ),
           Text(
             entry.title,
@@ -588,7 +586,7 @@ class _WorldDetailSheetState extends State<_WorldDetailSheet> {
             Text(
               entry.subtitle,
               style: const TextStyle(
-                color: _WorldPageState._mutedColor,
+                color: AppColors.textMuted,
                 fontSize: 15,
                 height: 1.45,
               ),
@@ -599,7 +597,7 @@ class _WorldDetailSheetState extends State<_WorldDetailSheet> {
             _TagWrap(tags: entry.tags),
           ],
           const SizedBox(height: 18),
-          const Divider(color: Color(0xFF4A2F80)),
+          const Divider(color: AppColors.divider),
           const SizedBox(height: 12),
           Text(
             entry.body.isEmpty ? '暂无详细内容' : entry.body,
@@ -632,10 +630,10 @@ class _WorldImage extends StatelessWidget {
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: const Color(0xFF4A2F80),
+        color: AppColors.field,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: const Icon(Icons.auto_awesome_outlined, color: Color(0xFFC4B4DC)),
+      child: const Icon(Icons.auto_awesome_outlined, color: AppColors.textMuted),
     );
     if (url.isEmpty) return fallback;
     return ClipRRect(
@@ -668,7 +666,7 @@ class _TagWrap extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
             decoration: BoxDecoration(
-              color: const Color(0xFF4A2F80),
+              color: AppColors.field,
               borderRadius: BorderRadius.circular(999),
             ),
             child: Text(tag, style: const TextStyle(fontSize: 12)),
@@ -701,7 +699,7 @@ class _WorldMessageState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 48, color: _WorldPageState._mutedColor),
+            Icon(icon, size: 48, color: AppColors.textMuted),
             const SizedBox(height: 14),
             Text(
               title,
@@ -711,7 +709,7 @@ class _WorldMessageState extends StatelessWidget {
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: _WorldPageState._mutedColor),
+              style: const TextStyle(color: AppColors.textMuted),
             ),
             if (onAction != null && actionLabel != null) ...[
               const SizedBox(height: 16),

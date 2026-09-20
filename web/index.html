@@ -1,48 +1,339 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
   <base href="$FLUTTER_BASE_HREF">
+
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Suki 排班">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="suki">
-  <meta name="theme-color" content="#1f1338">
+  <meta name="theme-color" content="#0b0718">
+  <meta name="apple-web-app-status-bar-style" content="black">
+  <meta name="apple-web-app-title" content="suki">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
-  <link rel="icon" type="image/png" href="favicon.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="preload" href="assets/loading.woff2" as="font" type="font/woff2" crossorigin>
+
   <title>suki</title>
   <link rel="manifest" href="manifest.json">
   <style>
-    html, body { width: 100%; height: 100%; margin: 0; background: #1f1338; }
-    body { overflow: hidden; }
-    #loading {
+    :root {
+      color-scheme: dark;
+      --page-bg: #0b0718;
+      --card-bg: #2a1a4e;
+      --title-color: #f6f2ff;
+      --title-color-soft: #e0a8ff;
+      --divider-color: #6a45ae;
+      --text-color: #cfc2e8;
+      --glow-color: rgba(199, 125, 255, 0.18);
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+      --card-border: #6a45ae;
+      --card-width: min(86vw, 360px);
+      --card-max-width: 360px;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      background: var(--page-bg);
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    #loading-screen {
       position: fixed;
       inset: 0;
-      display: grid;
-      place-items: center;
-      color: #f4eeff;
-      font-family: system-ui, sans-serif;
-      letter-spacing: .18em;
-      background: radial-gradient(circle at 50% 20%, #4a2f80, #1f1338 56%);
-      transition: opacity .3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: radial-gradient(circle at top, var(--glow-color), transparent 55%), var(--page-bg);
+      opacity: 1;
+      transition: opacity 0.5s ease;
+      z-index: 9999;
     }
-    #loading.hidden { opacity: 0; pointer-events: none; }
+
+    #loading-screen.is-hiding {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading-card {
+      width: var(--card-width);
+      max-width: var(--card-max-width);
+      border-radius: 28px;
+      padding: 28px 24px 22px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      text-align: center;
+    }
+
+    .loading-title {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0;
+      color: var(--title-color);
+      font-size: 30px;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+      line-height: 1;
+      margin-bottom: 18px;
+    }
+
+    .loading-word {
+      font-family: "LoadingOnly", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-weight: 700;
+      font-size: 1em;
+      letter-spacing: 0.12em;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.12em;
+    }
+
+    .loading-char {
+      display: inline-block;
+      animation: charJump 1.25s ease-in-out infinite;
+      transform-origin: center bottom;
+    }
+
+    .loading-char:nth-child(1) { animation-delay: 0s; }
+    .loading-char:nth-child(2) { animation-delay: 0.1s; }
+    .loading-char:nth-child(3) { animation-delay: 0.2s; }
+    .loading-char:nth-child(4) { animation-delay: 0.3s; }
+    .loading-char:nth-child(5) { animation-delay: 0.4s; }
+    .loading-char:nth-child(6) { animation-delay: 0.5s; }
+    .loading-char:nth-child(7) { animation-delay: 0.6s; }
+    .loading-char:nth-child(8) { animation-delay: 0.7s; }
+    .loading-char:nth-child(9) { animation-delay: 0.8s; }
+    .loading-char:nth-child(10) { animation-delay: 0.9s; }
+
+    .loading-char.dot {
+      font-size: 1.05em;
+      letter-spacing: 0;
+    }
+
+    .loading-divider {
+      height: 1px;
+      width: 100%;
+      background: linear-gradient(90deg, transparent, var(--divider-color), transparent);
+      margin: 0 0 18px;
+    }
+
+    .tip-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .tip-line {
+      color: var(--text-color);
+      font-size: 15px;
+      line-height: 1.7;
+      letter-spacing: 0.01em;
+      opacity: 0;
+      transform: translateY(6px);
+      animation: tipIn 0.5s ease forwards;
+    }
+
+    @keyframes tipIn {
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    @keyframes charJump {
+      0%, 70%, 100% {
+        transform: translateY(0);
+        color: var(--title-color);
+      }
+      35% {
+        transform: translateY(-8px) scale(1.04);
+        color: var(--title-color-soft);
+      }
+    }
+
+    @media (max-width: 420px) {
+      :root {
+        --card-width: min(92vw, 420px);
+        --card-max-width: 420px;
+      }
+
+      .loading-card {
+        padding: 30px 22px 24px;
+        border-radius: 26px;
+      }
+
+      .loading-title {
+        font-size: 24px;
+        margin-bottom: 16px;
+      }
+
+      .loading-divider {
+        margin-bottom: 16px;
+      }
+
+      .tip-list {
+        gap: 12px;
+      }
+
+      .tip-line {
+        font-size: 15px;
+        line-height: 1.7;
+      }
+    }
+
+    @media (max-width: 360px) {
+      :root {
+        --card-width: min(94vw, 380px);
+        --card-max-width: 380px;
+      }
+
+      .loading-card {
+        padding: 28px 18px 22px;
+      }
+
+      .loading-title {
+        font-size: 22px;
+      }
+
+      .tip-line {
+        font-size: 14px;
+      }
+    }
   </style>
 </head>
 <body>
-  <div id="loading">排班加载中…</div>
+    <div id="loading-screen" aria-live="polite" aria-busy="true">
+      <div class="loading-card">
+        <div class="loading-title">
+          <span class="loading-word" aria-label="loading..." role="img">
+            <span class="loading-char">L</span>
+            <span class="loading-char">O</span>
+            <span class="loading-char">A</span>
+            <span class="loading-char">D</span>
+            <span class="loading-char">I</span>
+            <span class="loading-char">N</span>
+            <span class="loading-char">G</span>
+            <span class="loading-char dot">.</span>
+            <span class="loading-char dot">.</span>
+            <span class="loading-char dot">.</span>
+          </span>
+        </div>
+        <div class="loading-divider" aria-hidden="true"></div>
+        <ul class="tip-list" id="loading-tips"></ul>
+      </div>
+    </div>
   <script src="flutter_bootstrap.js" async></script>
   <script>
-    const loading = document.getElementById('loading');
-    const observer = new MutationObserver(() => {
-      if (document.querySelector('flt-glass-pane')) {
-        loading.classList.add('hidden');
-        setTimeout(() => loading.remove(), 320);
-        observer.disconnect();
+    (function () {
+      if ('FontFace' in window && document.fonts) {
+        var fontFace = new FontFace(
+          'LoadingOnly',
+          'url(assets/loading.woff2) format("woff2")',
+          { display: 'swap', weight: '700', style: 'normal' }
+        );
+
+        fontFace.load().then(function (loadedFont) {
+          document.fonts.add(loadedFont);
+        }).catch(function () {
+          // Keep the fallback system font if the subset font fails to load.
+        });
       }
-    });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+      const loadingScreen = document.getElementById('loading-screen');
+      const tipList = document.getElementById('loading-tips');
+      const tips = [
+        '今夜，翻开一本剧本。',
+        '粉色世界熄灯之后，这里的炉火才刚刚点燃。',
+        '挑选一个故事，我们替你留了座位。'
+      ];
+
+      let hideTimer = null;
+      let observer = null;
+      let hidden = false;
+
+      function renderTips() {
+        if (!tipList) {
+          return;
+        }
+        tips.forEach(function (tip, index) {
+          const line = document.createElement('li');
+          line.className = 'tip-line';
+          line.style.animationDelay = (0.1 + index * 0.12) + 's';
+          line.textContent = tip;
+          tipList.appendChild(line);
+        });
+      }
+
+      function hideLoading() {
+        if (hidden || !loadingScreen) {
+          return;
+        }
+        hidden = true;
+        loadingScreen.classList.add('is-hiding');
+        if (hideTimer) {
+          window.clearTimeout(hideTimer);
+        }
+        hideTimer = window.setTimeout(function () {
+          loadingScreen.style.display = 'none';
+          if (observer) {
+            observer.disconnect();
+            observer = null;
+          }
+        }, 520);
+      }
+
+      function hasFlutterView() {
+        return Boolean(document.querySelector('flt-glass-pane'));
+      }
+
+      function checkFlutterReady() {
+        if (hasFlutterView()) {
+          hideLoading();
+        }
+      }
+
+      renderTips();
+      checkFlutterReady();
+
+      observer = new MutationObserver(function () {
+        checkFlutterReady();
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+
+      window.addEventListener('load', function () {
+        checkFlutterReady();
+      });
+    })();
   </script>
 </body>
 </html>

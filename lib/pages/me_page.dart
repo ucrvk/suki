@@ -1,10 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/account_service.dart';
 import '../widgets/account_avatar.dart';
 import 'account_settings_page.dart';
+import '../theme/app_colors.dart';
+
+const String _githubRepoUrl = 'https://github.com/ucrvk/suki';
 
 class MePage extends StatefulWidget {
   const MePage({super.key, this.authService, this.profileService});
@@ -17,8 +23,6 @@ class MePage extends StatefulWidget {
 }
 
 class _MePageState extends State<MePage> {
-  static const _cardColor = Color(0xFF33205C);
-  static const _mutedColor = Color(0xFFC4B4DC);
 
   late final AccountAuthService _authService;
   late final AccountProfileService _profileService;
@@ -30,6 +34,7 @@ class _MePageState extends State<MePage> {
   bool _loggingOut = false;
   AccountIdentity? _account;
   AccountProfile _profile = const AccountProfile.empty();
+  String _appVersion = '-';
 
   @override
   void initState() {
@@ -38,6 +43,7 @@ class _MePageState extends State<MePage> {
     _profileService = widget.profileService ?? SupabaseAccountProfileService();
     _authSubscription = _authService.authChanges.listen(_applyAccount);
     unawaited(_restoreAuth());
+    unawaited(_loadAppVersion());
   }
 
   @override
@@ -212,6 +218,33 @@ class _MePageState extends State<MePage> {
     if (mounted && _account?.id == account.id) await _loadProfile(account);
   }
 
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final version = info.version.trim();
+      final build = info.buildNumber.trim();
+      if (!mounted) return;
+      setState(() {
+        _appVersion = build.isEmpty ? 'v$version' : 'v$version+$build';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _appVersion = '-');
+    }
+  }
+
+  Future<void> _openGitHub() async {
+    final uri = Uri.parse(_githubRepoUrl);
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (opened) return;
+    if (!mounted) return;
+    await Clipboard.setData(const ClipboardData(text: _githubRepoUrl));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('无法直接打开浏览器，已复制链接到剪贴板')));
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -250,7 +283,11 @@ class _MePageState extends State<MePage> {
                 ? const Center(child: CircularProgressIndicator())
                 : ListView(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                    children: [_buildAccountCard()],
+                    children: [
+                      _buildAccountCard(),
+                      const SizedBox(height: 12),
+                      _buildMetaCard(),
+                    ],
                   ),
           ),
         ],
@@ -261,10 +298,10 @@ class _MePageState extends State<MePage> {
   Widget _buildAccountCard() {
     if (_account == null) {
       return Material(
-        color: _cardColor,
+        color: AppColors.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(22),
-          side: const BorderSide(color: Color(0xFF4A2F80)),
+          side: const BorderSide(color: AppColors.outline),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -291,10 +328,10 @@ class _MePageState extends State<MePage> {
     }
 
     return Material(
-      color: _cardColor,
+      color: AppColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(22),
-        side: const BorderSide(color: Color(0xFF4A2F80)),
+        side: const BorderSide(color: AppColors.outline),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -311,10 +348,10 @@ class _MePageState extends State<MePage> {
               _account!.email,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: _mutedColor),
+              style: const TextStyle(color: AppColors.textMuted),
             ),
           ),
-          const Divider(height: 1, color: Color(0xFF4A2F80)),
+          const Divider(height: 1, color: AppColors.divider),
           ListTile(
             key: const Key('account-settings-button'),
             leading: const Icon(Icons.settings_outlined),
@@ -324,6 +361,75 @@ class _MePageState extends State<MePage> {
             ),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: _openSettings,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetaCard() {
+    return Material(
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: AppColors.outline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.info_outline_rounded),
+            title: const Text(
+              '版本号',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: Text(
+              _appVersion,
+              style: const TextStyle(color: AppColors.textMuted),
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.divider),
+          ListTile(
+            leading: const Icon(Icons.badge_outlined),
+            title: const Text(
+              '原版及后端作者：鱼七',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text(
+              '本改版作者：wenwen12305',
+              style: TextStyle(color: AppColors.textMuted),
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.divider),
+          ListTile(
+            key: const Key('github-link-button'),
+            leading: const Icon(Icons.open_in_new_rounded),
+            title: const Text(
+              '访问项目 GitHub',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: const Text(
+              'ucrvk/suki',
+              style: TextStyle(color: AppColors.textMuted),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _openGitHub,
+          ),
+          const Divider(height: 1, color: AppColors.divider),
+          ListTile(
+            leading: const Icon(Icons.gavel_outlined),
+            title: const Text(
+              '开源使用',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: Text(
+              '查看开源许可',
+              style: TextStyle(color: AppColors.textMuted),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () {
+              showLicensePage(context: context, applicationName: 'suki');
+            },
           ),
         ],
       ),

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app_shell.dart';
 import 'services/maid_content_cache_store.dart';
 import 'services/supabase_service.dart';
+import 'theme/app_colors.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,22 +31,49 @@ class MainApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       theme: ThemeData(
-        scaffoldBackgroundColor: const Color(0xFF1F1338),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF4A2F80),
-          brightness: Brightness.dark,
-          surface: const Color(0xFF33205C),
+        scaffoldBackgroundColor: AppColors.background,
+        colorScheme: const ColorScheme.dark(
+          primary: AppColors.accent,
+          onPrimary: AppColors.accentInk,
+          secondary: AppColors.accentSoft,
+          onSecondary: AppColors.accentInk,
+          surface: AppColors.surface,
+          onSurface: AppColors.textPrimary,
+          surfaceContainerHighest: AppColors.field,
+          outline: AppColors.outline,
+          outlineVariant: AppColors.divider,
         ),
         useMaterial3: true,
         fontFamily: 'IceMoon',
-        navigationBarTheme: const NavigationBarThemeData(
-          backgroundColor: Color(0xFF33205C),
-          indicatorColor: Color(0xFF4A2F80),
-          labelTextStyle: WidgetStatePropertyAll(
-            TextStyle(color: Color(0xFFF4EEFF)),
-          ),
-          iconTheme: WidgetStatePropertyAll(
-            IconThemeData(color: Color(0xFFF4EEFF)),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: AppColors.background,
+          foregroundColor: AppColors.textPrimary,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+        ),
+        dividerTheme: const DividerThemeData(
+          color: AppColors.divider,
+          space: 1,
+        ),
+        progressIndicatorTheme: const ProgressIndicatorThemeData(
+          color: AppColors.accent,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: AppColors.surface,
+          indicatorColor: AppColors.field,
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return TextStyle(
+              color: selected ? AppColors.accent : AppColors.textMuted,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            );
+          }),
+          iconTheme: WidgetStateProperty.resolveWith(
+            (states) => IconThemeData(
+              color: states.contains(WidgetState.selected)
+                  ? AppColors.accent
+                  : AppColors.textMuted,
+            ),
           ),
         ),
       ),
