@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/world_content_entry.dart';
+import '../services/account_service.dart';
+import '../services/ending_unlock_service.dart';
+import '../services/spoiler_mode_store.dart';
 import '../services/world_content_service.dart';
 import '../theme/app_colors.dart';
 
@@ -45,10 +48,20 @@ class WorldPageController {
 }
 
 class WorldPage extends StatefulWidget {
-  const WorldPage({super.key, this.controller, this.dataSource});
+  const WorldPage({
+    super.key,
+    this.controller,
+    this.dataSource,
+    this.spoilerModeStore,
+    this.unlockRepository,
+    this.authService,
+  });
 
   final WorldPageController? controller;
   final WorldDataSource? dataSource;
+  final SpoilerModeStore? spoilerModeStore;
+  final EndingUnlockRepository? unlockRepository;
+  final AccountAuthService? authService;
 
   @override
   State<WorldPage> createState() => _WorldPageState();
@@ -63,6 +76,16 @@ class _WorldPageState extends State<WorldPage>
     for (final section in WorldSection.values) section: ScrollController(),
   };
 
+  SpoilerModeStore? _spoilerStore;
+  EndingUnlockRepository? _unlockRepository;
+  AccountAuthService? _authService;
+  StreamSubscription<AccountIdentity?>? _authSubscription;
+  bool _spoilerEnabled = true;
+  String? _userId;
+  Set<String> _unlockedIds = const <String>{};
+  bool _unlocksLoading = false;
+  Object? _unlocksError;
+
   WorldContentSnapshot? _codexSnapshot;
   WorldContentSnapshot? _endingsSnapshot;
   Object? _codexError;
@@ -73,6 +96,19 @@ class _WorldPageState extends State<WorldPage>
   bool _endingsRefreshing = false;
   WorldSection _section = WorldSection.witch;
 
+  List<WorldContentEntry> get _visibleEndings {
+    final entries = _endingsSnapshot?.entries ?? const <WorldContentEntry>[];
+    // 未登录时无法判断解锁状态，交给结局页的登录提示处理。
+    if (!_spoilerEnabled && _userId == null) return const <WorldContentEntry>[];
+    // 剧透模式关闭时依旧列出全部结局，未解锁的以 ??? 占位。
+    return entries;
+  }
+
+  bool _isLocked(WorldContentEntry entry) {
+    if (_spoilerEnabled || _userId == null) return false;
+    return !_unlockedIds.contains(entry.id);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -81,12 +117,25 @@ class _WorldPageState extends State<WorldPage>
       ..addListener(_handleTabChanged);
     widget.controller?._scrollToTop = _scrollToTop;
     widget.controller?._refresh = () => unawaited(_refreshCurrent());
+    _spoilerStore = widget.spoilerModeStore;
+    if (_spoilerStore != null) {
+      _spoilerEnabled = _spoilerStore!.value;
+      _spoilerStore!.addListener(_handleSpoilerChanged);
+      _unlockRepository =
+          widget.unlockRepository ?? EndingUnlockRepository();
+      _authService = widget.authService ?? SupabaseAccountAuthService();
+      _userId = _authService!.currentAccount?.id;
+      _authSubscription = _authService!.authChanges.listen(_applyAccount);
+    }
     unawaited(_loadCodex());
     unawaited(_loadEndings());
+    if (_userId != null) unawaited(_loadUnlockedIds());
   }
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
+    _spoilerStore?.removeListener(_handleSpoilerChanged);
     widget.controller?._scrollToTop = null;
     widget.controller?._refresh = null;
     _tabController
@@ -96,6 +145,56 @@ class _WorldPageState extends State<WorldPage>
       controller.dispose();
     }
     super.dispose();
+  }
+
+  void _handleSpoilerChanged() {
+    final enabled = _spoilerStore?.value ?? true;
+    if (enabled == _spoilerEnabled) return;
+    setState(() => _spoilerEnabled = enabled);
+    if (_userId != null) unawaited(_loadUnlockedIds());
+  }
+
+  Future<void> _applyAccount(AccountIdentity? account) async {
+    if (!mounted) return;
+    final userId = account?.id;
+    setState(() => _userId = userId);
+    if (userId != null) await _loadUnlockedIds();
+  }
+
+  Future<void> _loadUnlockedIds({bool showFailure = false}) async {
+    final repository = _unlockRepository;
+    final userId = _userId;
+    if (repository == null || userId == null) {
+      if (!mounted) return;
+      setState(() {
+        _unlockedIds = const <String>{};
+        _unlocksLoading = false;
+      });
+      return;
+    }
+    setState(() {
+      _unlocksLoading = true;
+      _unlocksError = null;
+    });
+    try {
+      final cached = await repository.loadCached(userId);
+      if (!mounted) return;
+      setState(() => _unlockedIds = cached);
+      final fresh = await repository.refresh(userId);
+      if (!mounted) return;
+      setState(() {
+        _unlockedIds = fresh;
+        _unlocksLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _unlocksLoading = false;
+        if (_unlockedIds.isEmpty) _unlocksError = error;
+      });
+      if (_unlockedIds.isEmpty || !showFailure) return;
+      _showRefreshFailure();
+    }
   }
 
   void _handleTabChanged() {
@@ -183,6 +282,7 @@ class _WorldPageState extends State<WorldPage>
         _endingsSnapshot = snapshot;
         _endingsLoading = false;
       });
+      if (_userId != null) await _loadUnlockedIds(showFailure: showFailure);
     } catch (error) {
       if (!mounted) return;
       if (_endingsSnapshot == null) {
@@ -357,9 +457,30 @@ class _WorldPageState extends State<WorldPage>
         onAction: () => _refreshEndings(showFailure: false),
       );
     }
-    final groups = groupEndingsByScript(
-      _endingsSnapshot?.entries ?? const <WorldContentEntry>[],
-    );
+    final entries = _visibleEndings;
+    if (!_spoilerEnabled) {
+      if (_userId == null) {
+        return _WorldMessageState(
+          icon: Icons.lock_outline_rounded,
+          title: '登录后查看已解锁结局',
+          message: '剧透模式关闭时，只有登录后才能看到你已解锁的结局',
+        );
+      }
+      if (_unlocksError != null && entries.isEmpty) {
+        return _WorldMessageState(
+          icon: Icons.cloud_off_rounded,
+          title: '解锁状态加载失败',
+          message: _unlocksError.toString(),
+          actionLabel: '重试',
+          onAction: () => _loadUnlockedIds(),
+        );
+      }
+      if (_unlocksLoading && entries.isEmpty) {
+        return const Center(child: CircularProgressIndicator());
+      }
+    }
+
+    final groups = groupEndingsByScript(entries);
     if (groups.isEmpty) {
       return _buildListState(
         section: WorldSection.endings,
@@ -372,17 +493,10 @@ class _WorldPageState extends State<WorldPage>
       );
     }
 
+    final showProgress = _userId != null;
     final children = <Widget>[];
     for (final group in groups.entries) {
-      children.add(
-        Padding(
-          padding: const EdgeInsets.only(top: 6, bottom: 2),
-          child: Text(
-            group.key,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-          ),
-        ),
-      );
+      children.add(_buildGroupHeader(group, showProgress: showProgress));
       children.addAll(group.value.map(_buildEndingCard));
     }
     return RefreshIndicator(
@@ -395,6 +509,40 @@ class _WorldPageState extends State<WorldPage>
         itemCount: children.length,
         separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (_, index) => children[index],
+      ),
+    );
+  }
+
+  Widget _buildGroupHeader(
+    MapEntry<String, List<WorldContentEntry>> group, {
+    required bool showProgress,
+  }) {
+    final total = group.value.length;
+    final unlocked = showProgress
+        ? group.value.where((entry) => _unlockedIds.contains(entry.id)).length
+        : null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              group.key,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            ),
+          ),
+          if (unlocked != null)
+            Text(
+              '（$unlocked/$total）',
+              style: TextStyle(
+                color: unlocked == total
+                    ? AppColors.accent
+                    : AppColors.textMuted,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -454,10 +602,11 @@ class _WorldPageState extends State<WorldPage>
   }
 
   Widget _buildEndingCard(WorldContentEntry entry) {
+    final locked = _isLocked(entry);
     return InkWell(
       key: ValueKey(entry.id),
       borderRadius: BorderRadius.circular(20),
-      onTap: () => _showDetails(entry),
+      onTap: locked ? () => _showLockedHint() : () => _showDetails(entry),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
@@ -468,20 +617,30 @@ class _WorldPageState extends State<WorldPage>
         ),
         child: Row(
           children: [
-            const Icon(Icons.visibility_outlined, color: AppColors.accent),
+            Icon(
+              locked ? Icons.lock_outline_rounded : Icons.visibility_outlined,
+              color: locked ? AppColors.textMuted : AppColors.accent,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    entry.title,
-                    style: const TextStyle(
+                    locked ? '???' : entry.title,
+                    style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
+                      color: locked ? AppColors.textMuted : AppColors.textPrimary,
                     ),
                   ),
-                  if (entry.subtitle.isNotEmpty) ...[
+                  if (locked) ...[
+                    const SizedBox(height: 5),
+                    const Text(
+                      '尚未解锁',
+                      style: TextStyle(color: AppColors.textMuted),
+                    ),
+                  ] else if (entry.subtitle.isNotEmpty) ...[
                     const SizedBox(height: 5),
                     Text(
                       entry.subtitle,
@@ -489,6 +648,10 @@ class _WorldPageState extends State<WorldPage>
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: AppColors.textMuted),
                     ),
+                  ],
+                  if (!locked && entry.tags.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _TagWrap(tags: entry.tags),
                   ],
                 ],
               ),
@@ -498,6 +661,12 @@ class _WorldPageState extends State<WorldPage>
         ),
       ),
     );
+  }
+
+  void _showLockedHint() {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('该结局尚未解锁')));
   }
 
   Future<void> _showDetails(WorldContentEntry entry) {

@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/account_service.dart';
+import '../services/spoiler_mode_store.dart';
 import '../widgets/account_avatar.dart';
 import 'account_settings_page.dart';
 import '../theme/app_colors.dart';
@@ -13,25 +14,32 @@ import '../theme/app_colors.dart';
 const String _githubRepoUrl = 'https://github.com/ucrvk/suki';
 
 class MePage extends StatefulWidget {
-  const MePage({super.key, this.authService, this.profileService});
+  const MePage({
+    super.key,
+    this.authService,
+    this.profileService,
+    this.spoilerModeStore,
+  });
 
   final AccountAuthService? authService;
   final AccountProfileService? profileService;
+  final SpoilerModeStore? spoilerModeStore;
 
   @override
   State<MePage> createState() => _MePageState();
 }
 
 class _MePageState extends State<MePage> {
-
   late final AccountAuthService _authService;
   late final AccountProfileService _profileService;
   StreamSubscription<AccountIdentity?>? _authSubscription;
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  SpoilerModeStore? _spoilerStore;
 
   bool _loading = true;
   bool _loggingOut = false;
+  bool _spoilerEnabled = false;
   AccountIdentity? _account;
   AccountProfile _profile = const AccountProfile.empty();
   String _appVersion = '-';
@@ -42,16 +50,33 @@ class _MePageState extends State<MePage> {
     _authService = widget.authService ?? SupabaseAccountAuthService();
     _profileService = widget.profileService ?? SupabaseAccountProfileService();
     _authSubscription = _authService.authChanges.listen(_applyAccount);
+    _spoilerStore = widget.spoilerModeStore;
+    _spoilerEnabled = _spoilerStore?.value ?? false;
+    _spoilerStore?.addListener(_handleSpoilerChanged);
     unawaited(_restoreAuth());
     unawaited(_loadAppVersion());
   }
 
   @override
   void dispose() {
+    _spoilerStore?.removeListener(_handleSpoilerChanged);
     _authSubscription?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  void _handleSpoilerChanged() {
+    setState(() => _spoilerEnabled = _spoilerStore?.value ?? false);
+  }
+
+  Future<void> _setSpoilerEnabled(bool enabled) async {
+    final store = _spoilerStore;
+    if (store == null) return;
+    setState(() => _spoilerEnabled = enabled);
+    await store.setEnabled(enabled);
+    if (!mounted) return;
+    setState(() => _spoilerEnabled = store.value);
   }
 
   Future<void> _restoreAuth() async {
@@ -285,6 +310,8 @@ class _MePageState extends State<MePage> {
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                     children: [
                       _buildAccountCard(),
+                      if (_spoilerStore != null) const SizedBox(height: 12),
+                      if (_spoilerStore != null) _buildSpoilerCard(),
                       const SizedBox(height: 12),
                       _buildMetaCard(),
                     ],
@@ -363,6 +390,31 @@ class _MePageState extends State<MePage> {
             onTap: _openSettings,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSpoilerCard() {
+    return Material(
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: AppColors.outline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SwitchListTile(
+        key: const Key('spoiler-mode-switch'),
+        secondary: const Icon(Icons.visibility_outlined),
+        title: const Text(
+          '剧透模式',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: const Text(
+          '开启后显示全部结局；关闭时只显示你已解锁的结局',
+          style: TextStyle(color: AppColors.textMuted),
+        ),
+        value: _spoilerEnabled,
+        onChanged: (value) => unawaited(_setSpoilerEnabled(value)),
       ),
     );
   }

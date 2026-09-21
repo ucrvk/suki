@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suki/pages/me_page.dart';
 import 'package:suki/services/account_service.dart';
+import 'package:suki/services/spoiler_mode_store.dart';
 
 void main() {
   testWidgets('shows login dialog, validates fields, and signs in', (
@@ -109,6 +110,50 @@ void main() {
     expect(auth.refreshCount, 1);
     expect(find.text('witch@example.com'), findsOneWidget);
   });
+
+  testWidgets('toggles the spoiler mode switch', (tester) async {
+    final store = _FakeSpoilerModeStore();
+    await tester.pumpWidget(
+      _app(
+        MePage(
+          authService: _FakeAuthService(),
+          profileService: _FakeProfileService(const AccountProfile.empty()),
+          spoilerModeStore: store,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('spoiler-mode-switch')), findsOneWidget);
+    expect(store.value, isFalse);
+
+    await tester.tap(find.byKey(const Key('spoiler-mode-switch')));
+    await tester.pumpAndSettle();
+
+    expect(store.value, isTrue);
+    expect(store.setEnabledCalls, 1);
+
+    await tester.tap(find.byKey(const Key('spoiler-mode-switch')));
+    await tester.pumpAndSettle();
+
+    expect(store.value, isFalse);
+    expect(store.setEnabledCalls, 2);
+  });
+}
+
+class _FakeSpoilerModeStore extends ChangeNotifier implements SpoilerModeStore {
+  bool _enabled = false;
+  int setEnabledCalls = 0;
+
+  @override
+  bool get value => _enabled;
+
+  @override
+  Future<void> setEnabled(bool enabled) async {
+    setEnabledCalls++;
+    _enabled = enabled;
+    notifyListeners();
+  }
 }
 
 Widget _app(Widget child) => MaterialApp(

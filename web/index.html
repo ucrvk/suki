@@ -18,6 +18,7 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="description" content="A new Flutter project.">
 
   <!-- iOS meta tags & icons -->
@@ -45,8 +46,9 @@
       --glow-color: rgba(199, 125, 255, 0.18);
       --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
       --card-border: #6a45ae;
-      --card-width: min(86vw, 360px);
-      --card-max-width: 360px;
+      --card-width: min(100%, 400px);
+      --card-min-width: min(320px, 100%);
+      --card-min-height: 260px;
     }
 
     html, body {
@@ -80,8 +82,10 @@
     }
 
     .loading-card {
+      box-sizing: border-box;
       width: var(--card-width);
-      max-width: var(--card-max-width);
+      min-width: var(--card-min-width);
+      min-height: var(--card-min-height);
       border-radius: 28px;
       padding: 28px 24px 22px;
       background: var(--card-bg);
@@ -90,6 +94,10 @@
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
     }
 
     .loading-title {
@@ -183,23 +191,28 @@
     }
 
     @media (max-width: 420px) {
+      #loading-screen {
+        padding: 16px;
+      }
+
       :root {
-        --card-width: min(92vw, 420px);
-        --card-max-width: 420px;
+        --card-width: min(80vw, 440px);
+        --card-min-width: min(300px, 100%);
+        --card-min-height: 320px;
       }
 
       .loading-card {
-        padding: 30px 22px 24px;
+        padding: 30px 22px 26px;
         border-radius: 26px;
       }
 
       .loading-title {
-        font-size: 24px;
-        margin-bottom: 16px;
+        font-size: 26px;
+        margin-bottom: 18px;
       }
 
       .loading-divider {
-        margin-bottom: 16px;
+        margin-bottom: 18px;
       }
 
       .tip-list {
@@ -213,17 +226,22 @@
     }
 
     @media (max-width: 360px) {
+      #loading-screen {
+        padding: 12px;
+      }
+
       :root {
-        --card-width: min(94vw, 380px);
-        --card-max-width: 380px;
+        --card-width: min(80vw, 420px);
+        --card-min-width: min(280px, 100%);
+        --card-min-height: 300px;
       }
 
       .loading-card {
-        padding: 28px 18px 22px;
+        padding: 28px 18px 24px;
       }
 
       .loading-title {
-        font-size: 22px;
+        font-size: 24px;
       }
 
       .tip-line {

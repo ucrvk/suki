@@ -5,6 +5,7 @@ import 'pages/me_page.dart';
 import 'pages/roster_page.dart';
 import 'pages/world_page.dart';
 import 'services/account_service.dart';
+import 'services/spoiler_mode_store.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -14,6 +15,7 @@ class AppShell extends StatefulWidget {
     this.worldDataSource,
     this.authService,
     this.profileService,
+    this.spoilerModeStore,
   });
 
   final BookingDataSource? bookingDataSource;
@@ -21,6 +23,7 @@ class AppShell extends StatefulWidget {
   final WorldDataSource? worldDataSource;
   final AccountAuthService? authService;
   final AccountProfileService? profileService;
+  final SpoilerModeStore? spoilerModeStore;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -88,10 +91,13 @@ class _AppShellState extends State<AppShell> {
           WorldPage(
             controller: _worldController,
             dataSource: widget.worldDataSource,
+            spoilerModeStore: widget.spoilerModeStore,
+            authService: widget.authService,
           ),
           MePage(
             authService: widget.authService,
             profileService: widget.profileService,
+            spoilerModeStore: widget.spoilerModeStore,
           ),
         ],
       ),

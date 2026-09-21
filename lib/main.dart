@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_shell.dart';
 import 'services/maid_content_cache_store.dart';
+import 'services/spoiler_mode_store.dart';
 import 'services/supabase_service.dart';
 import 'theme/app_colors.dart';
 
@@ -19,11 +20,14 @@ Future<void> main() async {
     },
   );
   await MaidContentCacheStore.ensureInitialized();
-  runApp(const MainApp());
+  final spoilerModeStore = await HiveSpoilerModeStore.instance();
+  runApp(MainApp(spoilerModeStore: spoilerModeStore));
 }
 
 class MainApp extends StatelessWidget {
-  const MainApp({super.key});
+  const MainApp({super.key, this.spoilerModeStore});
+
+  final SpoilerModeStore? spoilerModeStore;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +81,7 @@ class MainApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const AppShell(),
+      home: AppShell(spoilerModeStore: spoilerModeStore),
     );
   }
 }

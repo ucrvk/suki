@@ -61,6 +61,23 @@ void main() {
     );
   });
 
+  test('keeps the ending tags returned by the api', () {
+    final entry = WorldContentEntry.fromEndingJson({
+      'id': 'f3afd779-b937-4ea1-8995-01d6f6ed8d16',
+      'script': '夜眠花',
+      'title': '黎明之誓',
+      'subtitle': '时安，我嫁给你了。',
+      'image_url': '',
+      'tags': ['结局', '結婚', '原谅', '真相'],
+      'body': '拼凑出完整的真相后，苏棠放下了执念与怨恨。',
+      'sort': 2,
+      'created_at': '2026-09-09T02:38:55.435295+00:00',
+    });
+
+    expect(entry.tags, ['结局', '結婚', '原谅', '真相']);
+    expect(entry.toJson()['tags'], ['结局', '結婚', '原谅', '真相']);
+  });
+
   test('groups endings by script while preserving response order', () {
     WorldContentEntry ending(String script, String title, int sort) {
       return WorldContentEntry.fromEndingJson({
