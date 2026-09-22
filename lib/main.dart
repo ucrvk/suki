@@ -80,6 +80,23 @@ class MainApp extends StatelessWidget {
             ),
           ),
         ),
+        navigationRailTheme: const NavigationRailThemeData(
+          backgroundColor: AppColors.surface,
+          indicatorColor: AppColors.field,
+          selectedIconTheme: IconThemeData(color: AppColors.accent),
+          unselectedIconTheme: IconThemeData(color: AppColors.textMuted),
+          selectedLabelTextStyle: TextStyle(
+            color: AppColors.accent,
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+          ),
+          unselectedLabelTextStyle: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 17,
+            fontWeight: FontWeight.w500,
+          ),
+          minWidth: 72,
+        ),
       ),
       home: AppShell(spoilerModeStore: spoilerModeStore),
     );

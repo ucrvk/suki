@@ -111,10 +111,10 @@ class _FakeDataSource implements RosterDataSource {
   final RosterSnapshot snapshot;
 
   @override
-  Future<RosterSnapshot?> loadCached() async => null;
+  Future<RosterSnapshot?> loadCached(String day) async => null;
 
   @override
-  Future<RosterSnapshot> refresh() async => snapshot;
+  Future<RosterSnapshot> refresh(String day) async => snapshot;
 }
 
 class _FakeBookingDataSource implements BookingDataSource {
@@ -133,10 +133,11 @@ class _FakeBookingDataSource implements BookingDataSource {
 
 class _FailingDataSource implements RosterDataSource {
   @override
-  Future<RosterSnapshot?> loadCached() async => null;
+  Future<RosterSnapshot?> loadCached(String day) async => null;
 
   @override
-  Future<RosterSnapshot> refresh() => Future.error(Exception('offline'));
+  Future<RosterSnapshot> refresh(String day) =>
+      Future.error(Exception('offline'));
 }
 
 class _EmptyWorldDataSource implements WorldDataSource {
