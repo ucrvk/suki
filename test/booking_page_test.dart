@@ -255,6 +255,45 @@ void main() {
     expect(find.text('剩余 10 名'), findsAtLeastNWidgets(1));
   });
 
+  testWidgets('renders **bold** markup inside the notice', (tester) async {
+    const markedNotice = BookingNotice(
+      title: '预约**须知**',
+      intro: '请确认**自己**状态安稳。',
+      items: ['**今晚**状态安稳'],
+      footer: '**照顾好自己**才是第一位。',
+    );
+    await tester.pumpWidget(
+      _page(
+        scripts: [_script(notice: markedNotice)],
+        sessions: [_session()],
+        account: _identity('u1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('booking-apply-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('booking-notice-title')), findsOneWidget);
+
+    // 须知四个字段（标题/开场/条目/结尾）全部走富文本渲染。
+    final rich = tester
+        .widgetList<Text>(find.byType(Text))
+        .where((text) => text.textSpan != null)
+        .toList();
+    expect(rich, hasLength(4));
+    for (final text in rich) {
+      // 字面 `**` 不会显示出来。
+      expect(text.textSpan!.toPlainText(), isNot(contains('**')));
+      // 且每段都含有加粗片段。
+      expect(
+        (text.textSpan! as TextSpan).children!.whereType<TextSpan>().any(
+          (span) => span.style?.fontWeight != null,
+        ),
+        isTrue,
+      );
+    }
+  });
+
   testWidgets('skips notice when script has none', (tester) async {
     await tester.pumpWidget(
       _page(

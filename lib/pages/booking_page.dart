@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/booking_script_entry.dart';
+import '../widgets/markdown_text.dart';
 import '../models/booking_session.dart';
 import '../models/booking_slot.dart';
 import '../services/account_service.dart';
@@ -262,14 +263,24 @@ class _BookingPageState extends State<BookingPage> {
     }
     if (!mounted) return;
 
-    final booked = await showModalBottomSheet<bool>(
+    final booked = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _BookingSheet(
-        title: script.name,
-        sessions: sessions,
-        submitService: _submitService,
+      barrierDismissible: true,
+      builder: (_) => Dialog(
+        backgroundColor: AppColors.surfaceElevated,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: AppColors.outline),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: _BookingSheet(
+            title: script.name,
+            sessions: sessions,
+            submitService: _submitService,
+          ),
+        ),
       ),
     );
     if (!mounted || booked != true) return;
@@ -473,7 +484,7 @@ class _BookingPageState extends State<BookingPage> {
           ],
           if (script.description.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Text(
+            MarkdownText(
               script.description,
               style: const TextStyle(
                 color: AppColors.textMuted,
@@ -671,9 +682,14 @@ class _BookingNoticeDialogState extends State<_BookingNoticeDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (notice.title.isNotEmpty) ...[
-                Text(
+                MarkdownText(
                   notice.title,
                   key: const Key('booking-notice-title'),
+                  // 标题本身已是 w800，标记段保持同粗细、只换成强调色。
+                  boldStyle: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.accent,
+                  ),
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
@@ -682,7 +698,7 @@ class _BookingNoticeDialogState extends State<_BookingNoticeDialog> {
                 const SizedBox(height: 12),
               ],
               if (notice.intro.isNotEmpty) ...[
-                Text(
+                MarkdownText(
                   notice.intro,
                   style: const TextStyle(
                     color: AppColors.textMuted,
@@ -712,7 +728,7 @@ class _BookingNoticeDialogState extends State<_BookingNoticeDialog> {
                                   ),
                                 ),
                                 Expanded(
-                                  child: Text(
+                                  child: MarkdownText(
                                     notice.items[i],
                                     style: const TextStyle(
                                       color: AppColors.textPrimary,
@@ -729,7 +745,7 @@ class _BookingNoticeDialogState extends State<_BookingNoticeDialog> {
                 ),
               if (notice.footer.isNotEmpty) ...[
                 const SizedBox(height: 6),
-                Text(
+                MarkdownText(
                   notice.footer,
                   style: const TextStyle(
                     color: AppColors.textMuted,
@@ -872,11 +888,7 @@ class _BookingSheetState extends State<_BookingSheet> {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      decoration: const BoxDecoration(
-        color: AppColors.surfaceElevated,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        border: Border(top: BorderSide(color: AppColors.outline)),
-      ),
+      // 外层 Dialog 已提供圆角、描边和键盘避让，这里只负责内边距与滚动。
       padding: EdgeInsets.fromLTRB(
         20,
         18,
