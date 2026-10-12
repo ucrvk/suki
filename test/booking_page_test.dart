@@ -1,7 +1,7 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
 import 'package:suki/models/booking_script_entry.dart';
 import 'package:suki/models/booking_session.dart';
 import 'package:suki/models/booking_slot.dart';
@@ -19,16 +19,19 @@ const _notice = BookingNotice(
   footer: '照顾好自己才是第一位。',
 );
 
-BookingScriptEntry _script({BookingNotice? notice, String id = 's1'}) =>
-    BookingScriptEntry(
-      id: id,
-      name: '夜眠花',
-      description: '简介',
-      imageUrl: '',
-      sort: 1,
-      tags: const ['剧情'],
-      notice: notice,
-    );
+BookingScriptEntry _script({
+  BookingNotice? notice,
+  String id = 's1',
+  String imageUrl = '',
+}) => BookingScriptEntry(
+  id: id,
+  name: '夜眠花',
+  description: '简介',
+  imageUrl: imageUrl,
+  sort: 1,
+  tags: const ['剧情'],
+  notice: notice,
+);
 
 BookingSession _session({
   String id = 'sess-1',
@@ -207,6 +210,131 @@ void main() {
     expect(_applyLabel(tester), '登录后可预约');
     // 未登录时看不到场次速览。
     expect(find.byKey(const Key('booking-session-summary')), findsNothing);
+  });
+
+  testWidgets('shows the script cover at the top of the card', (tester) async {
+    await tester.pumpWidget(
+      _page(
+        scripts: [_script(imageUrl: 'https://example.com/cover.png')],
+        sessions: [_session()],
+        account: _identity('u1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('booking-script-cover')), findsOneWidget);
+    expect(
+      tester
+          .widgetList<CachedNetworkImage>(find.byType(CachedNetworkImage))
+          .map((image) => image.imageUrl),
+      contains('https://example.com/cover.png'),
+    );
+  });
+
+  testWidgets('hides the cover when the script has no image', (tester) async {
+    await tester.pumpWidget(
+      _page(
+        scripts: [_script()],
+        sessions: [_session()],
+        account: _identity('u1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('booking-script-cover')), findsNothing);
+    expect(find.byType(CachedNetworkImage), findsNothing);
+  });
+
+  testWidgets('lays scripts out in adaptive columns on wide screens', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1700, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      _page(
+        scripts: [
+          _script(id: 's1'),
+          _script(id: 's2'),
+          _script(id: 's3'),
+          _script(id: 's4'),
+        ],
+        sessions: [_session()],
+        account: _identity('u1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 宽 1700 → 封顶 4 栏：四张卡排在同一行。
+    final tops = [
+      's1',
+      's2',
+      's3',
+      's4',
+    ].map((id) => tester.getTopLeft(find.byKey(ValueKey(id))).dy).toSet();
+    expect(tops, hasLength(1));
+
+    final first = tester.getTopLeft(find.byKey(const ValueKey('s1')));
+    final second = tester.getTopLeft(find.byKey(const ValueKey('s2')));
+    expect(first.dx, 16);
+    // 栏宽 = (1700 - 16*2 - 14*3) / 4 = 406.5，加间距 14。
+    expect(second.dx - first.dx, closeTo(406.5 + 14, 0.5));
+  });
+
+  testWidgets('uses three columns from 1200 wide', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      _page(
+        scripts: [
+          _script(id: 's1'),
+          _script(id: 's2'),
+          _script(id: 's3'),
+          _script(id: 's4'),
+        ],
+        sessions: [_session()],
+        account: _identity('u1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 宽 1200 → 3 栏：前三张同一行，第四张换行。
+    final first = tester.getTopLeft(find.byKey(const ValueKey('s1')));
+    final fourth = tester.getTopLeft(find.byKey(const ValueKey('s4')));
+    expect(tester.getTopLeft(find.byKey(const ValueKey('s3'))).dy, first.dy);
+    expect(fourth.dy, greaterThan(first.dy));
+    // 栏宽 = (1200 - 16*2 - 14*2) / 3 = 380，加间距 14。
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('s2'))).dx - first.dx,
+      closeTo(380 + 14, 0.5),
+    );
+  });
+
+  testWidgets('stacks scripts in one column on narrow screens', (tester) async {
+    tester.view.physicalSize = const Size(400, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      _page(
+        scripts: [
+          _script(id: 's1'),
+          _script(id: 's2'),
+        ],
+        sessions: [_session()],
+        account: _identity('u1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final first = tester.getTopLeft(find.byKey(const ValueKey('s1')));
+    final second = tester.getTopLeft(find.byKey(const ValueKey('s2')));
+    expect(first.dx, 16);
+    expect(second.dx, 16);
+    expect(second.dy, greaterThan(first.dy));
   });
 
   testWidgets('shows notice with 5s countdown before booking', (tester) async {

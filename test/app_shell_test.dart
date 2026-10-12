@@ -153,10 +153,16 @@ class _EmptyWorldDataSource implements WorldDataSource {
   Future<WorldContentSnapshot?> loadCachedEndings() async => null;
 
   @override
+  Future<Map<String, String>?> loadCachedScriptCovers() async => null;
+
+  @override
   Future<WorldContentSnapshot> refreshCodex() async => snapshot;
 
   @override
   Future<WorldContentSnapshot> refreshEndings() async => snapshot;
+
+  @override
+  Future<Map<String, String>> refreshScriptCovers() async => const {};
 }
 
 class _ShellAuthService implements AccountAuthService {

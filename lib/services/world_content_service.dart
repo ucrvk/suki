@@ -17,6 +17,9 @@ class WorldContentSnapshot {
 abstract interface class WorldContentRemote {
   Future<List<WorldContentEntry>> fetchCodex();
   Future<List<WorldContentEntry>> fetchEndings();
+
+  /// 剧本名 → 封面地址，仅包含有封面的剧本。
+  Future<Map<String, String>> fetchScriptCovers();
 }
 
 abstract interface class WorldContentCache {
@@ -24,6 +27,8 @@ abstract interface class WorldContentCache {
   Future<WorldContentSnapshot?> readEndings();
   Future<void> writeCodex(WorldContentSnapshot snapshot);
   Future<void> writeEndings(WorldContentSnapshot snapshot);
+  Future<Map<String, String>?> readScriptCovers();
+  Future<void> writeScriptCovers(Map<String, String> covers);
 }
 
 class SupabaseWorldContentApi implements WorldContentRemote {
@@ -37,6 +42,10 @@ class SupabaseWorldContentApi implements WorldContentRemote {
   static final Uri endingsEndpoint = Uri.parse(
     '${SupabaseService.supabaseUrl}/rest/v1/suki_witch_endings'
     '?select=*&order=script.asc%2Csort.asc',
+  );
+  static final Uri scriptsEndpoint = Uri.parse(
+    '${SupabaseService.supabaseUrl}/rest/v1/suki_witch_scripts'
+    '?select=name,image_url&order=sort.asc',
   );
 
   final http.Client _client;
@@ -54,6 +63,19 @@ class SupabaseWorldContentApi implements WorldContentRemote {
   Future<List<WorldContentEntry>> fetchEndings() async {
     final rows = await _getRows(endingsEndpoint);
     return rows.map(WorldContentEntry.fromEndingJson).toList(growable: false);
+  }
+
+  @override
+  Future<Map<String, String>> fetchScriptCovers() async {
+    final rows = await _getRows(scriptsEndpoint);
+    final covers = <String, String>{};
+    for (final row in rows) {
+      final name = (row['name'] ?? '').toString().trim();
+      final url = (row['image_url'] ?? '').toString().trim();
+      if (name.isEmpty || url.isEmpty) continue;
+      covers[name] = url;
+    }
+    return covers;
   }
 
   Future<List<Map<String, dynamic>>> _getRows(Uri endpoint) async {
@@ -95,6 +117,7 @@ class SupabaseWorldContentApi implements WorldContentRemote {
 class HiveWorldContentCache implements WorldContentCache {
   static const codexCacheKey = 'witch_codex_snapshot_v1';
   static const endingsCacheKey = 'witch_endings_snapshot_v1';
+  static const scriptCoversCacheKey = 'witch_scripts_snapshot_v1';
 
   @override
   Future<WorldContentSnapshot?> readCodex() =>
@@ -111,6 +134,29 @@ class HiveWorldContentCache implements WorldContentCache {
   @override
   Future<void> writeEndings(WorldContentSnapshot snapshot) =>
       _write(endingsCacheKey, snapshot);
+
+  @override
+  Future<Map<String, String>?> readScriptCovers() async {
+    await MaidContentCacheStore.ensureInitialized();
+    final raw = MaidContentCacheStore.read<Map>(scriptCoversCacheKey);
+    if (raw == null) return null;
+    final covers = <String, String>{};
+    for (final entry in raw.entries) {
+      final name = entry.key.toString().trim();
+      final value = entry.value;
+      if (value is! String) continue;
+      final url = value.trim();
+      if (name.isEmpty || url.isEmpty) continue;
+      covers[name] = url;
+    }
+    return covers;
+  }
+
+  @override
+  Future<void> writeScriptCovers(Map<String, String> covers) async {
+    await MaidContentCacheStore.ensureInitialized();
+    await MaidContentCacheStore.write(scriptCoversCacheKey, covers);
+  }
 
   Future<WorldContentSnapshot?> _read(
     String key,
@@ -155,6 +201,8 @@ class WorldContentRepository {
 
   Future<WorldContentSnapshot?> loadCachedCodex() => _cache.readCodex();
   Future<WorldContentSnapshot?> loadCachedEndings() => _cache.readEndings();
+  Future<Map<String, String>?> loadCachedScriptCovers() =>
+      _cache.readScriptCovers();
 
   Future<WorldContentSnapshot> refreshCodex() async {
     final snapshot = WorldContentSnapshot(
@@ -172,6 +220,12 @@ class WorldContentRepository {
     );
     await _cache.writeEndings(snapshot);
     return snapshot;
+  }
+
+  Future<Map<String, String>> refreshScriptCovers() async {
+    final covers = await _remote.fetchScriptCovers();
+    await _cache.writeScriptCovers(covers);
+    return covers;
   }
 }
 
