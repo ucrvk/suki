@@ -319,7 +319,6 @@ class _BookingPageState extends State<BookingPage> {
               ],
             ),
           ),
-          if (_showClosedBanner(window)) _buildBookingDisabledBanner(window),
           Expanded(child: _buildBody(window)),
         ],
       ),
@@ -334,11 +333,17 @@ class _BookingPageState extends State<BookingPage> {
     return !window.isOpen;
   }
 
+  /// 「未开放」提示作为列表最上面的一个普通条目，跟随内容一起滚动。
+  List<Widget> _bannerEntries(BookingWindowState window) =>
+      _showClosedBanner(window)
+      ? [_buildBookingDisabledBanner(window)]
+      : const [];
+
   Widget _buildBookingDisabledBanner(BookingWindowState window) {
     final headline = _bookingEnabled ? '当前不在预约时间，暂时无法预约' : '预约未开始，当前无法预约';
     final nextOpen = window.nextOpenAt;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Container(
         key: const Key('booking-disabled-banner'),
         width: double.infinity,
@@ -391,32 +396,34 @@ class _BookingPageState extends State<BookingPage> {
 
   Widget _buildBody(BookingWindowState window) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return _buildScrollView(window, const [
+        SizedBox(height: 160),
+        Center(child: CircularProgressIndicator()),
+      ]);
     }
     if (_error != null && _scripts.isEmpty) {
-      return _MessageState(
-        icon: Icons.cloud_off_rounded,
-        title: '预约项目加载失败',
-        message: _error.toString(),
-        actionLabel: '重试',
-        onAction: () => _refresh(showFailure: false),
-      );
+      return _buildScrollView(window, [
+        const SizedBox(height: 80),
+        _MessageState(
+          icon: Icons.cloud_off_rounded,
+          title: '预约项目加载失败',
+          message: _error.toString(),
+          actionLabel: '重试',
+          onAction: () => _refresh(showFailure: false),
+        ),
+      ]);
     }
     if (_scripts.isEmpty) {
       return RefreshIndicator(
         onRefresh: () => _refresh(showFailure: true),
-        child: ListView(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 150),
-            _MessageState(
-              icon: Icons.auto_stories_outlined,
-              title: '暂无可预约的项目',
-              message: '下拉即可重新获取',
-            ),
-          ],
-        ),
+        child: _buildScrollView(window, const [
+          SizedBox(height: 150),
+          _MessageState(
+            icon: Icons.auto_stories_outlined,
+            title: '暂无可预约的项目',
+            message: '下拉即可重新获取',
+          ),
+        ]),
       );
     }
 
@@ -425,24 +432,29 @@ class _BookingPageState extends State<BookingPage> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           const spacing = 14.0;
-          const padding = EdgeInsets.fromLTRB(16, 4, 16, 24);
           final columns = _gridColumnsFor(constraints.maxWidth);
-          final available = constraints.maxWidth - padding.horizontal;
+          final available = constraints.maxWidth - _listPadding.horizontal;
           final itemWidth = (available - spacing * (columns - 1)) / columns;
           return SingleChildScrollView(
             key: const Key('booking-list'),
             controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: padding,
-            child: Wrap(
-              spacing: spacing,
-              runSpacing: spacing,
+            padding: _listPadding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final script in _scripts)
-                  SizedBox(
-                    width: itemWidth,
-                    child: _buildScriptCard(script, window),
-                  ),
+                ..._bannerEntries(window),
+                Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: [
+                    for (final script in _scripts)
+                      SizedBox(
+                        width: itemWidth,
+                        child: _buildScriptCard(script, window),
+                      ),
+                  ],
+                ),
               ],
             ),
           );
@@ -450,6 +462,26 @@ class _BookingPageState extends State<BookingPage> {
       ),
     );
   }
+
+  /// 普通（非宫格）内容：整体可滚动，顶部先放「未开放」提示。
+  Widget _buildScrollView(
+    BookingWindowState window,
+    List<Widget> children, {
+    Key? key,
+  }) {
+    return SingleChildScrollView(
+      key: key,
+      controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: _listPadding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [..._bannerEntries(window), ...children],
+      ),
+    );
+  }
+
+  static const EdgeInsets _listPadding = EdgeInsets.fromLTRB(16, 4, 16, 24);
 
   /// 按可用宽度决定卡片栏数：1 → 2 → 3 → 4 栏，最多 4 栏。
   int _gridColumnsFor(double width) {

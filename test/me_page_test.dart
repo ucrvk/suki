@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suki/pages/me_page.dart';
 import 'package:suki/services/account_service.dart';
+import 'package:suki/services/bgm_controller.dart';
 import 'package:suki/services/spoiler_mode_store.dart';
 
 void main() {
@@ -139,6 +140,69 @@ void main() {
     expect(store.value, isFalse);
     expect(store.setEnabledCalls, 2);
   });
+
+  testWidgets('toggles the background music switch', (tester) async {
+    final bgm = _FakeBgmController();
+    await tester.pumpWidget(
+      _app(
+        MePage(
+          authService: _FakeAuthService(),
+          profileService: _FakeProfileService(const AccountProfile.empty()),
+          bgmController: bgm,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bgm-switch')), findsOneWidget);
+    expect(bgm.value, isFalse);
+
+    await tester.tap(find.byKey(const Key('bgm-switch')));
+    await tester.pumpAndSettle();
+
+    expect(bgm.value, isTrue);
+    expect(bgm.setEnabledCalls, 1);
+
+    await tester.tap(find.byKey(const Key('bgm-switch')));
+    await tester.pumpAndSettle();
+
+    expect(bgm.value, isFalse);
+    expect(bgm.setEnabledCalls, 2);
+  });
+
+  testWidgets('hides the background music switch without a controller', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        MePage(
+          authService: _FakeAuthService(),
+          profileService: _FakeProfileService(const AccountProfile.empty()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bgm-switch')), findsNothing);
+  });
+}
+
+class _FakeBgmController extends ChangeNotifier implements BgmController {
+  bool _enabled = false;
+  int setEnabledCalls = 0;
+
+  @override
+  bool get value => _enabled;
+
+  @override
+  Future<void> setEnabled(bool enabled) async {
+    setEnabledCalls++;
+    _enabled = enabled;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> resumeIfNeeded() async {}
 }
 
 class _FakeSpoilerModeStore extends ChangeNotifier implements SpoilerModeStore {

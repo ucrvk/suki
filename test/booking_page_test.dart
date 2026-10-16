@@ -706,6 +706,48 @@ void main() {
     );
   });
 
+  testWidgets('scrolls the disabled banner together with the script list', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(600, 400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      _page(
+        scripts: [
+          _script(id: 's1'),
+          _script(id: 's2'),
+          _script(id: 's3'),
+          _script(id: 's4'),
+        ],
+        sessions: [_session()],
+        slots: [_laterSlot()],
+        account: _identity('u1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final banner = find.byKey(const Key('booking-disabled-banner'));
+    expect(banner, findsOneWidget);
+    // 提示框在滚动列表内部，而不是固定在页面顶部。
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('booking-list')),
+        matching: banner,
+      ),
+      findsOneWidget,
+    );
+
+    final before = tester.getTopLeft(banner).dy;
+    await tester.drag(
+      find.byKey(const Key('booking-list')),
+      const Offset(0, -200),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(banner).dy, lessThan(before));
+  });
+
   testWidgets('fails closed when slots cannot be loaded', (tester) async {
     await tester.pumpWidget(
       _page(

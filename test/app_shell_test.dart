@@ -7,6 +7,7 @@ import 'package:suki/pages/booking_page.dart';
 import 'package:suki/pages/roster_page.dart';
 import 'package:suki/pages/world_page.dart';
 import 'package:suki/services/account_service.dart';
+import 'package:suki/services/bgm_controller.dart';
 import 'package:suki/services/roster_service.dart';
 import 'package:suki/services/world_content_service.dart';
 import 'package:suki/theme/app_colors.dart';
@@ -47,6 +48,32 @@ void main() {
     await tester.tap(find.text('我的').last);
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('open-login-button')), findsOneWidget);
+  });
+
+  testWidgets('shows the background music switch and retries playback on tap', (
+    tester,
+  ) async {
+    final bgm = _ShellBgmController();
+    await tester.pumpWidget(
+      _testApp(
+        AppShell(
+          bookingDataSource: _FakeBookingDataSource(),
+          rosterDataSource: _FakeDataSource(_sampleSnapshot()),
+          worldDataSource: _EmptyWorldDataSource(),
+          authService: _ShellAuthService(),
+          profileService: _ShellProfileService(),
+          bgmController: bgm,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 首次点按（这里通过切换标签）会补播可能被浏览器拦截的 BGM。
+    await tester.tap(find.text('我的').last);
+    await tester.pumpAndSettle();
+
+    expect(bgm.resumeCalls, greaterThan(0));
+    expect(find.byKey(const Key('bgm-switch')), findsOneWidget);
   });
 
   testWidgets('shows retry state when there is no cache and refresh fails', (
@@ -104,6 +131,25 @@ RosterSnapshot _sampleSnapshot() {
     ],
     fetchedAt: DateTime(2026),
   );
+}
+
+class _ShellBgmController extends ChangeNotifier implements BgmController {
+  bool _enabled = false;
+  int resumeCalls = 0;
+
+  @override
+  bool get value => _enabled;
+
+  @override
+  Future<void> setEnabled(bool enabled) async {
+    _enabled = enabled;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> resumeIfNeeded() async {
+    resumeCalls++;
+  }
 }
 
 class _FakeDataSource implements RosterDataSource {

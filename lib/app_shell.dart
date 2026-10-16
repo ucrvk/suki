@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'pages/booking_page.dart';
@@ -5,6 +7,7 @@ import 'pages/me_page.dart';
 import 'pages/roster_page.dart';
 import 'pages/world_page.dart';
 import 'services/account_service.dart';
+import 'services/bgm_controller.dart';
 import 'services/booking_service.dart';
 import 'services/booking_session_service.dart';
 import 'services/booking_slot_service.dart';
@@ -23,6 +26,7 @@ class AppShell extends StatefulWidget {
     this.authService,
     this.profileService,
     this.spoilerModeStore,
+    this.bgmController,
   });
 
   final BookingDataSource? bookingDataSource;
@@ -35,6 +39,7 @@ class AppShell extends StatefulWidget {
   final AccountAuthService? authService;
   final AccountProfileService? profileService;
   final SpoilerModeStore? spoilerModeStore;
+  final BgmController? bgmController;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -115,10 +120,20 @@ class _AppShellState extends State<AppShell> {
           authService: widget.authService,
           profileService: widget.profileService,
           spoilerModeStore: widget.spoilerModeStore,
+          bgmController: widget.bgmController,
         ),
       ],
     );
 
+    // 浏览器可能拦截首屏自动播放：首次点按/触摸时补播一次 BGM（无待补播则空操作）。
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) => unawaited(widget.bgmController?.resumeIfNeeded()),
+      child: _buildShell(width, body),
+    );
+  }
+
+  Widget _buildShell(double width, Widget body) {
     if (width >= _railBreakpoint) {
       return Scaffold(
         body: Row(
