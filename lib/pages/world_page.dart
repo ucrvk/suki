@@ -726,16 +726,29 @@ class _WorldPageState extends State<WorldPage>
       backgroundColor: AppColors.surfaceElevated,
       builder: (context) => FractionallySizedBox(
         heightFactor: 0.9,
-        child: _WorldDetailSheet(entry: entry),
+        child: _WorldDetailSheet(entry: entry, images: _detailImagesFor(entry)),
       ),
     );
+  }
+
+  /// 详情页顶部图片：与卡片保持一致——世界观优先用剧本封面兜底，
+  /// 其余用条目自带的 image_url / image_url2。为空时详情页不显示图片。
+  List<String> _detailImagesFor(WorldContentEntry entry) {
+    final cover = _coverUrlFor(entry);
+    return <String>[
+      if (cover.isNotEmpty) cover,
+      ...entry.imageUrls.where((url) => url != cover),
+    ];
   }
 }
 
 class _WorldDetailSheet extends StatefulWidget {
-  const _WorldDetailSheet({required this.entry});
+  const _WorldDetailSheet({required this.entry, required this.images});
 
   final WorldContentEntry entry;
+
+  /// 详情页顶部展示的图片，与列表卡片保持一致；为空时不显示图片。
+  final List<String> images;
 
   @override
   State<_WorldDetailSheet> createState() => _WorldDetailSheetState();
@@ -754,7 +767,7 @@ class _WorldDetailSheetState extends State<_WorldDetailSheet> {
   @override
   Widget build(BuildContext context) {
     final entry = widget.entry;
-    final images = entry.imageUrls;
+    final images = widget.images;
     return SafeArea(
       top: false,
       child: ListView(
@@ -762,6 +775,7 @@ class _WorldDetailSheetState extends State<_WorldDetailSheet> {
         children: [
           if (images.isNotEmpty) ...[
             SizedBox(
+              key: const Key('world-detail-images'),
               height: 300,
               child: PageView.builder(
                 controller: _pageController,

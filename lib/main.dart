@@ -26,7 +26,7 @@ Future<void> main() async {
   );
   await MaidContentCacheStore.ensureInitialized();
   final spoilerModeStore = await HiveSpoilerModeStore.instance();
-  final bgmController = await AssetBgmController.instance();
+  final bgmController = await RemoteBgmController.instance();
   runApp(
     MainApp(spoilerModeStore: spoilerModeStore, bgmController: bgmController),
   );

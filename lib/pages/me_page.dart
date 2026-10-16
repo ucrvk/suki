@@ -434,7 +434,7 @@ class _MePageState extends State<MePage> {
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         subtitle: const Text(
-          '开启后循环播放内置背景音乐',
+          '开启后循环播放在线背景音乐',
           style: TextStyle(color: AppColors.textMuted),
         ),
         value: _bgmEnabled,

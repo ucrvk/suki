@@ -3,11 +3,11 @@ import 'package:suki/services/bgm_controller.dart';
 
 void main() {
   test(
-    'stays silent by default and loops the bundled asset when enabled',
+    'stays silent by default and loops the online track when enabled',
     () async {
       final engine = _FakeEngine();
       final persisted = <bool>[];
-      final controller = AssetBgmController(
+      final controller = RemoteBgmController(
         engine: engine,
         persist: (enabled) async => persisted.add(enabled),
       );
@@ -17,7 +17,7 @@ void main() {
 
       await controller.setEnabled(true);
       expect(controller.value, isTrue);
-      expect(engine.played, [AssetBgmController.assetPath]);
+      expect(engine.played, [RemoteBgmController.bgmUrl]);
       expect(persisted, [true]);
 
       await controller.setEnabled(false);
@@ -29,7 +29,7 @@ void main() {
 
   test('keeps a single player when toggled repeatedly', () async {
     final engine = _FakeEngine();
-    final controller = AssetBgmController(engine: engine);
+    final controller = RemoteBgmController(engine: engine);
 
     await controller.setEnabled(true);
     await controller.setEnabled(true);
@@ -42,7 +42,7 @@ void main() {
 
   test('retries a blocked autoplay until the first user interaction', () async {
     final engine = _FakeEngine()..failPlay = true;
-    final controller = AssetBgmController(engine: engine, enabled: true);
+    final controller = RemoteBgmController(engine: engine, enabled: true);
 
     // 浏览器拦截自动播放：失败后仍保留待补播标记。
     await controller.resumeIfNeeded();
@@ -60,14 +60,14 @@ void main() {
 
   test('does not resume while the switch is off', () async {
     final engine = _FakeEngine();
-    final controller = AssetBgmController(engine: engine);
+    final controller = RemoteBgmController(engine: engine);
 
     await controller.resumeIfNeeded();
     expect(engine.played, isEmpty);
 
     // 失败过的播放被用户关掉后，也不再补播。
     final failing = _FakeEngine()..failPlay = true;
-    final other = AssetBgmController(engine: failing, enabled: true);
+    final other = RemoteBgmController(engine: failing, enabled: true);
     await other.resumeIfNeeded();
     await other.setEnabled(false);
     failing.failPlay = false;
@@ -83,8 +83,8 @@ class _FakeEngine implements BgmAudioEngine {
   bool failPlay = false;
 
   @override
-  Future<void> playLoop(String assetPath) async {
-    played.add(assetPath);
+  Future<void> playLoop(String url) async {
+    played.add(url);
     if (failPlay) throw StateError('autoplay blocked');
   }
 
