@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
 import 'package:flutter/material.dart';
 
 /// 网络图片，带内存 + 磁盘缓存（`cached_network_image`）。
@@ -43,6 +44,10 @@ class RemoteImage extends StatelessWidget {
         alignment: alignment,
         placeholder: (_, _) => loading,
         errorWidget: (_, _, _) => failure,
+        // TODO(web): 绕开 Flutter 3.47 web 引擎回归（flutter/flutter#191800）——
+        // 默认的 HtmlImage 模式由 `<img>` 元素支撑，元素释放后重绘会渲染成纯黑块；
+        // 改用 HttpGet（字节解码）规避。升级到含修复（PR #192516）的 Flutter 后删除。
+        imageRenderMethodForWeb: ImageRenderMethodForWeb.HttpGet,
       ),
     );
   }

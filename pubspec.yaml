@@ -1,7 +1,7 @@
-﻿name: suki
+name: suki
 description: "A new Flutter project."
 publish_to: 'none'
-version: 3.0.0+1
+version: 3.0.1+1
 environment:
   sdk: ^3.11.1
 
@@ -17,6 +17,9 @@ dependencies:
   audioplayers: ^6.8.1
   package_info_plus: ^8.0.2
   url_launcher: ^6.3.1
+  # 显式依赖只为拿到 ImageRenderMethodForWeb 枚举（见 lib/widgets/remote_image.dart）。
+  # TODO(web): 与那里的 Flutter 3.47 web 图片黑块 workaround 一起删除。
+  cached_network_image_platform_interface: ^4.1.1
 
 dev_dependencies:
   flutter_test:
@@ -46,7 +49,6 @@ flutter:
 
   assets:
     - assets/logo.png
-    - assets/bgm.mp3
 
   fonts:
     - family: IceMoon

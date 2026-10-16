@@ -42,6 +42,37 @@ void main() {
     expect(find.byKey(const Key('world-detail-body')), findsOneWidget);
   });
 
+  testWidgets('shows the script cover at the top of a lore detail page', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_testApp(WorldPage(dataSource: _WorldFixture())));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('世界观'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('夜眠花'));
+    await tester.pumpAndSettle();
+
+    // 详情页顶部沿用卡片上的剧本封面。
+    expect(_sheetImageUrls(tester), contains('https://example.com/cover.png'));
+    expect(find.byKey(const Key('world-detail-body')), findsOneWidget);
+  });
+
+  testWidgets('hides the detail page image when the entry has none', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_testApp(WorldPage(dataSource: _WorldFixture())));
+    await tester.pumpAndSettle();
+
+    // 魔女图鉴默认分支，条目本身没有配图。
+    await tester.tap(find.text('纸樱'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('world-detail-images')), findsNothing);
+    expect(_sheetImageUrls(tester), isEmpty);
+    expect(find.byKey(const Key('world-detail-body')), findsOneWidget);
+  });
+
   testWidgets('shows independent failure and retry state', (tester) async {
     await tester.pumpWidget(_testApp(WorldPage(dataSource: _FailingWorld())));
     await tester.pumpAndSettle();
@@ -146,6 +177,17 @@ Widget _testApp(Widget child) => MaterialApp(
 /// 当前树里所有网络图片的地址，用于断言卡片用了哪张封面。
 List<String> _networkImageUrls(WidgetTester tester) => tester
     .widgetList<CachedNetworkImage>(find.byType(CachedNetworkImage))
+    .map((image) => image.imageUrl)
+    .toList();
+
+/// 详情页（底部弹层）顶部的图片地址。
+List<String> _sheetImageUrls(WidgetTester tester) => tester
+    .widgetList<CachedNetworkImage>(
+      find.descendant(
+        of: find.byKey(const Key('world-detail-images')),
+        matching: find.byType(CachedNetworkImage),
+      ),
+    )
     .map((image) => image.imageUrl)
     .toList();
 
