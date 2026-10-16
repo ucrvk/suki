@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
+import 'remote_image.dart';
 
 class AccountAvatar extends StatelessWidget {
   const AccountAvatar({required this.imageUrl, this.size = 48, super.key});
@@ -22,17 +23,14 @@ class AccountAvatar extends StatelessWidget {
       ),
     );
     return ClipOval(
-      child: imageUrl.isEmpty
-          ? fallback
-          : Image.network(
-              imageUrl,
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-              loadingBuilder: (_, child, progress) =>
-                  progress == null ? child : fallback,
-              errorBuilder: (_, _, _) => fallback,
-            ),
+      child: RemoteImage(
+        imageUrl: imageUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: fallback,
+        errorWidget: fallback,
+      ),
     );
   }
 }

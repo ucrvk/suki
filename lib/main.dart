@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_shell.dart';
+import 'services/bgm_controller.dart';
 import 'services/maid_content_cache_store.dart';
 import 'services/spoiler_mode_store.dart';
 import 'services/supabase_service.dart';
@@ -25,13 +26,17 @@ Future<void> main() async {
   );
   await MaidContentCacheStore.ensureInitialized();
   final spoilerModeStore = await HiveSpoilerModeStore.instance();
-  runApp(MainApp(spoilerModeStore: spoilerModeStore));
+  final bgmController = await AssetBgmController.instance();
+  runApp(
+    MainApp(spoilerModeStore: spoilerModeStore, bgmController: bgmController),
+  );
 }
 
 class MainApp extends StatelessWidget {
-  const MainApp({super.key, this.spoilerModeStore});
+  const MainApp({super.key, this.spoilerModeStore, this.bgmController});
 
   final SpoilerModeStore? spoilerModeStore;
+  final BgmController? bgmController;
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +44,10 @@ class MainApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       theme: buildAppTheme(),
-      home: AppShell(spoilerModeStore: spoilerModeStore),
+      home: AppShell(
+        spoilerModeStore: spoilerModeStore,
+        bgmController: bgmController,
+      ),
     );
   }
 }

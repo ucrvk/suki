@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/account_service.dart';
+import '../services/bgm_controller.dart';
 import '../services/spoiler_mode_store.dart';
 import '../widgets/account_avatar.dart';
 import 'account_settings_page.dart';
@@ -19,11 +20,13 @@ class MePage extends StatefulWidget {
     this.authService,
     this.profileService,
     this.spoilerModeStore,
+    this.bgmController,
   });
 
   final AccountAuthService? authService;
   final AccountProfileService? profileService;
   final SpoilerModeStore? spoilerModeStore;
+  final BgmController? bgmController;
 
   @override
   State<MePage> createState() => _MePageState();
@@ -36,10 +39,12 @@ class _MePageState extends State<MePage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   SpoilerModeStore? _spoilerStore;
+  BgmController? _bgmController;
 
   bool _loading = true;
   bool _loggingOut = false;
   bool _spoilerEnabled = false;
+  bool _bgmEnabled = false;
   AccountIdentity? _account;
   AccountProfile _profile = const AccountProfile.empty();
   String _appVersion = '-';
@@ -53,6 +58,9 @@ class _MePageState extends State<MePage> {
     _spoilerStore = widget.spoilerModeStore;
     _spoilerEnabled = _spoilerStore?.value ?? false;
     _spoilerStore?.addListener(_handleSpoilerChanged);
+    _bgmController = widget.bgmController;
+    _bgmEnabled = _bgmController?.value ?? false;
+    _bgmController?.addListener(_handleBgmChanged);
     unawaited(_restoreAuth());
     unawaited(_loadAppVersion());
   }
@@ -60,6 +68,7 @@ class _MePageState extends State<MePage> {
   @override
   void dispose() {
     _spoilerStore?.removeListener(_handleSpoilerChanged);
+    _bgmController?.removeListener(_handleBgmChanged);
     _authSubscription?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
@@ -68,6 +77,19 @@ class _MePageState extends State<MePage> {
 
   void _handleSpoilerChanged() {
     setState(() => _spoilerEnabled = _spoilerStore?.value ?? false);
+  }
+
+  void _handleBgmChanged() {
+    setState(() => _bgmEnabled = _bgmController?.value ?? false);
+  }
+
+  Future<void> _setBgmEnabled(bool enabled) async {
+    final controller = _bgmController;
+    if (controller == null) return;
+    setState(() => _bgmEnabled = enabled);
+    await controller.setEnabled(enabled);
+    if (!mounted) return;
+    setState(() => _bgmEnabled = controller.value);
   }
 
   Future<void> _setSpoilerEnabled(bool enabled) async {
@@ -310,6 +332,8 @@ class _MePageState extends State<MePage> {
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                     children: [
                       _buildAccountCard(),
+                      if (_bgmController != null) const SizedBox(height: 12),
+                      if (_bgmController != null) _buildBgmCard(),
                       if (_spoilerStore != null) const SizedBox(height: 12),
                       if (_spoilerStore != null) _buildSpoilerCard(),
                       const SizedBox(height: 12),
@@ -390,6 +414,31 @@ class _MePageState extends State<MePage> {
             onTap: _openSettings,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBgmCard() {
+    return Material(
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: AppColors.outline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SwitchListTile(
+        key: const Key('bgm-switch'),
+        secondary: const Icon(Icons.music_note_outlined),
+        title: const Text(
+          '背景音乐',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: const Text(
+          '开启后循环播放内置背景音乐',
+          style: TextStyle(color: AppColors.textMuted),
+        ),
+        value: _bgmEnabled,
+        onChanged: (value) => unawaited(_setBgmEnabled(value)),
       ),
     );
   }

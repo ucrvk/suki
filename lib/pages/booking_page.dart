@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/booking_script_entry.dart';
-import '../widgets/markdown_text.dart';
 import '../models/booking_session.dart';
 import '../models/booking_slot.dart';
 import '../services/account_service.dart';
@@ -12,6 +11,8 @@ import '../services/booking_script_service.dart';
 import '../services/booking_service.dart';
 import '../services/booking_session_service.dart';
 import '../services/booking_slot_service.dart';
+import '../widgets/markdown_text.dart';
+import '../widgets/remote_image.dart';
 import '../theme/app_colors.dart';
 
 abstract interface class BookingDataSource {
@@ -318,7 +319,6 @@ class _BookingPageState extends State<BookingPage> {
               ],
             ),
           ),
-          if (_showClosedBanner(window)) _buildBookingDisabledBanner(window),
           Expanded(child: _buildBody(window)),
         ],
       ),
@@ -333,11 +333,17 @@ class _BookingPageState extends State<BookingPage> {
     return !window.isOpen;
   }
 
+  /// 「未开放」提示作为列表最上面的一个普通条目，跟随内容一起滚动。
+  List<Widget> _bannerEntries(BookingWindowState window) =>
+      _showClosedBanner(window)
+      ? [_buildBookingDisabledBanner(window)]
+      : const [];
+
   Widget _buildBookingDisabledBanner(BookingWindowState window) {
     final headline = _bookingEnabled ? '当前不在预约时间，暂时无法预约' : '预约未开始，当前无法预约';
     final nextOpen = window.nextOpenAt;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Container(
         key: const Key('booking-disabled-banner'),
         width: double.infinity,
@@ -390,48 +396,99 @@ class _BookingPageState extends State<BookingPage> {
 
   Widget _buildBody(BookingWindowState window) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return _buildScrollView(window, const [
+        SizedBox(height: 160),
+        Center(child: CircularProgressIndicator()),
+      ]);
     }
     if (_error != null && _scripts.isEmpty) {
-      return _MessageState(
-        icon: Icons.cloud_off_rounded,
-        title: '预约项目加载失败',
-        message: _error.toString(),
-        actionLabel: '重试',
-        onAction: () => _refresh(showFailure: false),
-      );
+      return _buildScrollView(window, [
+        const SizedBox(height: 80),
+        _MessageState(
+          icon: Icons.cloud_off_rounded,
+          title: '预约项目加载失败',
+          message: _error.toString(),
+          actionLabel: '重试',
+          onAction: () => _refresh(showFailure: false),
+        ),
+      ]);
     }
     if (_scripts.isEmpty) {
       return RefreshIndicator(
         onRefresh: () => _refresh(showFailure: true),
-        child: ListView(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 150),
-            _MessageState(
-              icon: Icons.auto_stories_outlined,
-              title: '暂无可预约的项目',
-              message: '下拉即可重新获取',
-            ),
-          ],
-        ),
+        child: _buildScrollView(window, const [
+          SizedBox(height: 150),
+          _MessageState(
+            icon: Icons.auto_stories_outlined,
+            title: '暂无可预约的项目',
+            message: '下拉即可重新获取',
+          ),
+        ]),
       );
     }
 
     return RefreshIndicator(
       onRefresh: () => _refresh(showFailure: true),
-      child: ListView.separated(
-        key: const Key('booking-list'),
-        controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-        itemCount: _scripts.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 14),
-        itemBuilder: (context, index) =>
-            _buildScriptCard(_scripts[index], window),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const spacing = 14.0;
+          final columns = _gridColumnsFor(constraints.maxWidth);
+          final available = constraints.maxWidth - _listPadding.horizontal;
+          final itemWidth = (available - spacing * (columns - 1)) / columns;
+          return SingleChildScrollView(
+            key: const Key('booking-list'),
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: _listPadding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ..._bannerEntries(window),
+                Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: [
+                    for (final script in _scripts)
+                      SizedBox(
+                        width: itemWidth,
+                        child: _buildScriptCard(script, window),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
+  }
+
+  /// 普通（非宫格）内容：整体可滚动，顶部先放「未开放」提示。
+  Widget _buildScrollView(
+    BookingWindowState window,
+    List<Widget> children, {
+    Key? key,
+  }) {
+    return SingleChildScrollView(
+      key: key,
+      controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: _listPadding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [..._bannerEntries(window), ...children],
+      ),
+    );
+  }
+
+  static const EdgeInsets _listPadding = EdgeInsets.fromLTRB(16, 4, 16, 24);
+
+  /// 按可用宽度决定卡片栏数：1 → 2 → 3 → 4 栏，最多 4 栏。
+  int _gridColumnsFor(double width) {
+    if (width >= 1600) return 4;
+    if (width >= 1200) return 3;
+    if (width >= 800) return 2;
+    return 1;
   }
 
   Widget _buildScriptCard(
@@ -440,6 +497,8 @@ class _BookingPageState extends State<BookingPage> {
   ) {
     return Container(
       key: ValueKey(script.id),
+      // 顶部通栏封面需要按卡片圆角裁切（描边与阴影不受影响）。
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(24),
@@ -452,51 +511,88 @@ class _BookingPageState extends State<BookingPage> {
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            script.name,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-          ),
-          if (script.tags.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
+          if (script.imageUrl.isNotEmpty) _buildScriptCover(script.imageUrl),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final tag in script.tags)
-                  Chip(
-                    visualDensity: VisualDensity.compact,
-                    side: BorderSide.none,
-                    backgroundColor: AppColors.field,
-                    label: Text(
-                      tag,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textMuted,
-                      ),
+                Text(
+                  script.name,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (script.tags.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final tag in script.tags)
+                        Chip(
+                          visualDensity: VisualDensity.compact,
+                          side: BorderSide.none,
+                          backgroundColor: AppColors.field,
+                          label: Text(
+                            tag,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textMuted,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+                if (script.description.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  MarkdownText(
+                    script.description,
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      height: 1.45,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
+                ],
+                _buildSessionSummary(script, window),
+                const SizedBox(height: 14),
+                _buildApplyButton(script, window),
               ],
             ),
-          ],
-          if (script.description.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            MarkdownText(
-              script.description,
-              style: const TextStyle(
-                color: AppColors.textMuted,
-                height: 1.45,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-          _buildSessionSummary(script, window),
-          const SizedBox(height: 14),
-          _buildApplyButton(script, window),
+          ),
         ],
+      ),
+    );
+  }
+
+  /// 剧本自带封面：顶部通栏横版图（带磁盘缓存），加载/失败时退化为占位块。
+  Widget _buildScriptCover(String url) {
+    return SizedBox(
+      key: const Key('booking-script-cover'),
+      width: double.infinity,
+      height: 160,
+      child: RemoteImage(
+        imageUrl: url,
+        width: double.infinity,
+        height: 160,
+        fit: BoxFit.cover,
+        placeholder: _buildCoverPlaceholder(),
+        errorWidget: _buildCoverPlaceholder(),
+      ),
+    );
+  }
+
+  Widget _buildCoverPlaceholder() {
+    return const ColoredBox(
+      color: AppColors.field,
+      child: Center(
+        child: Icon(Icons.auto_awesome_outlined, color: AppColors.textMuted),
       ),
     );
   }
@@ -526,14 +622,17 @@ class _BookingPageState extends State<BookingPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (nearest != null)
-            Row(
+            // 多栏卡片较窄，用 Wrap 允许换行而不是横向溢出。
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
               children: [
                 const Icon(
                   Icons.event_available_outlined,
                   size: 18,
                   color: AppColors.accent,
                 ),
-                const SizedBox(width: 6),
                 Text(
                   '最近场次 ${nearest.label}',
                   style: const TextStyle(
@@ -541,7 +640,6 @@ class _BookingPageState extends State<BookingPage> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(width: 10),
                 Text(
                   seatText,
                   style: const TextStyle(
@@ -554,15 +652,17 @@ class _BookingPageState extends State<BookingPage> {
           if (showNextOpen)
             Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Row(
+              child: Wrap(
                 key: const Key('booking-next-open'),
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 6,
+                runSpacing: 4,
                 children: [
                   const Icon(
                     Icons.lock_clock_outlined,
                     size: 18,
                     color: AppColors.accentSoft,
                   ),
-                  const SizedBox(width: 6),
                   Text(
                     formatNextOpen(window.nextOpenAt!),
                     style: const TextStyle(

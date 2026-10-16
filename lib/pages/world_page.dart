@@ -8,6 +8,7 @@ import '../services/ending_unlock_service.dart';
 import '../services/spoiler_mode_store.dart';
 import '../services/world_content_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/remote_image.dart';
 
 enum WorldSection { witch, lore, endings }
 
@@ -16,6 +17,8 @@ abstract interface class WorldDataSource {
   Future<WorldContentSnapshot?> loadCachedEndings();
   Future<WorldContentSnapshot> refreshCodex();
   Future<WorldContentSnapshot> refreshEndings();
+  Future<Map<String, String>?> loadCachedScriptCovers();
+  Future<Map<String, String>> refreshScriptCovers();
 }
 
 class RepositoryWorldDataSource implements WorldDataSource {
@@ -37,6 +40,14 @@ class RepositoryWorldDataSource implements WorldDataSource {
 
   @override
   Future<WorldContentSnapshot> refreshEndings() => _repository.refreshEndings();
+
+  @override
+  Future<Map<String, String>?> loadCachedScriptCovers() =>
+      _repository.loadCachedScriptCovers();
+
+  @override
+  Future<Map<String, String>> refreshScriptCovers() =>
+      _repository.refreshScriptCovers();
 }
 
 class WorldPageController {
@@ -69,7 +80,6 @@ class WorldPage extends StatefulWidget {
 
 class _WorldPageState extends State<WorldPage>
     with SingleTickerProviderStateMixin {
-
   late final TabController _tabController;
   late final WorldDataSource _dataSource;
   final _scrollControllers = {
@@ -96,6 +106,9 @@ class _WorldPageState extends State<WorldPage>
   bool _endingsRefreshing = false;
   WorldSection _section = WorldSection.witch;
 
+  /// 剧本名 → 封面地址，用于世界观条目（标题即剧本名）补图。
+  Map<String, String> _scriptCovers = const <String, String>{};
+
   List<WorldContentEntry> get _visibleEndings {
     final entries = _endingsSnapshot?.entries ?? const <WorldContentEntry>[];
     // 未登录时无法判断解锁状态，交给结局页的登录提示处理。
@@ -121,14 +134,14 @@ class _WorldPageState extends State<WorldPage>
     if (_spoilerStore != null) {
       _spoilerEnabled = _spoilerStore!.value;
       _spoilerStore!.addListener(_handleSpoilerChanged);
-      _unlockRepository =
-          widget.unlockRepository ?? EndingUnlockRepository();
+      _unlockRepository = widget.unlockRepository ?? EndingUnlockRepository();
       _authService = widget.authService ?? SupabaseAccountAuthService();
       _userId = _authService!.currentAccount?.id;
       _authSubscription = _authService!.authChanges.listen(_applyAccount);
     }
     unawaited(_loadCodex());
     unawaited(_loadEndings());
+    unawaited(_loadScriptCovers());
     if (_userId != null) unawaited(_loadUnlockedIds());
   }
 
@@ -201,6 +214,25 @@ class _WorldPageState extends State<WorldPage>
     if (_tabController.indexIsChanging) return;
     final next = WorldSection.values[_tabController.index];
     if (next != _section) setState(() => _section = next);
+  }
+
+  Future<void> _loadScriptCovers() async {
+    try {
+      final cached = await _dataSource.loadCachedScriptCovers();
+      if (!mounted) return;
+      if (cached != null && cached.isNotEmpty) {
+        setState(() => _scriptCovers = cached);
+      }
+    } catch (_) {
+      // 坏缓存直接忽略，走网络刷新。
+    }
+    try {
+      final fresh = await _dataSource.refreshScriptCovers();
+      if (!mounted) return;
+      setState(() => _scriptCovers = fresh);
+    } catch (_) {
+      // 封面只是锦上添花，失败不提示、不影响其它内容。
+    }
   }
 
   Future<void> _loadCodex() async {
@@ -547,6 +579,15 @@ class _WorldPageState extends State<WorldPage>
     );
   }
 
+  /// 世界观（lore）条目的标题就是剧本名，优先使用剧本自带封面。
+  String _coverUrlFor(WorldContentEntry entry) {
+    if (entry.kind == WorldContentKind.lore) {
+      final scriptCover = _scriptCovers[entry.title];
+      if (scriptCover != null && scriptCover.isNotEmpty) return scriptCover;
+    }
+    return entry.imageUrl;
+  }
+
   Widget _buildSummaryCard(WorldContentEntry entry) {
     return InkWell(
       key: ValueKey(entry.id),
@@ -562,7 +603,7 @@ class _WorldPageState extends State<WorldPage>
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _WorldImage(url: entry.imageUrl, width: 88, height: 104),
+            _WorldImage(url: _coverUrlFor(entry), width: 88, height: 104),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -581,7 +622,10 @@ class _WorldPageState extends State<WorldPage>
                       entry.subtitle,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: AppColors.textMuted, height: 1.35),
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        height: 1.35,
+                      ),
                     ),
                   ],
                   if (entry.tags.isNotEmpty) ...[
@@ -593,7 +637,10 @@ class _WorldPageState extends State<WorldPage>
             ),
             const Padding(
               padding: EdgeInsets.only(left: 6, top: 2),
-              child: Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.textMuted,
+              ),
             ),
           ],
         ),
@@ -631,7 +678,9 @@ class _WorldPageState extends State<WorldPage>
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
-                      color: locked ? AppColors.textMuted : AppColors.textPrimary,
+                      color: locked
+                          ? AppColors.textMuted
+                          : AppColors.textPrimary,
                     ),
                   ),
                   if (locked) ...[
@@ -742,10 +791,7 @@ class _WorldDetailSheetState extends State<_WorldDetailSheet> {
             const SizedBox(height: 18),
           ],
           if (entry.kind == WorldContentKind.ending)
-            Text(
-              entry.script,
-              style: const TextStyle(color: AppColors.accent),
-            ),
+            Text(entry.script, style: const TextStyle(color: AppColors.accent)),
           Text(
             entry.title,
             style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
@@ -802,20 +848,19 @@ class _WorldImage extends StatelessWidget {
         color: AppColors.field,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: const Icon(Icons.auto_awesome_outlined, color: AppColors.textMuted),
-    );
-    if (url.isEmpty) return fallback;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Image.network(
-        url,
-        width: width,
-        height: height,
-        fit: fit,
-        loadingBuilder: (context, child, progress) =>
-            progress == null ? child : fallback,
-        errorBuilder: (_, _, _) => fallback,
+      child: const Icon(
+        Icons.auto_awesome_outlined,
+        color: AppColors.textMuted,
       ),
+    );
+    return RemoteImage(
+      imageUrl: url,
+      width: width,
+      height: height,
+      fit: fit,
+      borderRadius: BorderRadius.circular(16),
+      placeholder: fallback,
+      errorWidget: fallback,
     );
   }
 }

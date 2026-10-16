@@ -100,17 +100,68 @@ void main() {
     expect(await repository.loadCachedEndings(), same(existingEnding));
     expect(cache.endingsWrites, 0);
   });
+
+  test('reads script covers from the scripts endpoint', () async {
+    final client = MockClient((request) async {
+      expect(request.method, 'GET');
+      expect(request.url, SupabaseWorldContentApi.scriptsEndpoint);
+      expect(request.headers['apikey'], SupabaseService.supabaseAnonKey);
+      return http.Response.bytes(
+        utf8.encode(
+          jsonEncode([
+            {'name': '夜眠花', 'image_url': 'https://example.com/a.png'},
+            {'name': '血源诅咒', 'image_url': 'https://example.com/b.png'},
+            {'name': '', 'image_url': 'https://example.com/skip.png'},
+            {'name': '无图', 'image_url': '  '},
+          ]),
+        ),
+        200,
+      );
+    });
+
+    final covers = await SupabaseWorldContentApi(
+      client: client,
+    ).fetchScriptCovers();
+    expect(covers, {
+      '夜眠花': 'https://example.com/a.png',
+      '血源诅咒': 'https://example.com/b.png',
+    });
+  });
+
+  test('script covers cache round trips independently', () async {
+    final cache = _MemoryWorldCache();
+    final repository = WorldContentRepository(
+      remote: _RemoteWorld(covers: {'夜眠花': 'https://example.com/a.png'}),
+      cache: cache,
+    );
+
+    expect(await repository.loadCachedScriptCovers(), isNull);
+    expect(await repository.refreshScriptCovers(), {
+      '夜眠花': 'https://example.com/a.png',
+    });
+    expect(await repository.loadCachedScriptCovers(), {
+      '夜眠花': 'https://example.com/a.png',
+    });
+    expect(cache.scriptCoverWrites, 1);
+    // 封面缓存独立于图鉴/结局。
+    expect(await repository.loadCachedCodex(), isNull);
+    expect(await repository.loadCachedEndings(), isNull);
+    expect(cache.codexWrites, 0);
+    expect(cache.endingsWrites, 0);
+  });
 }
 
 class _RemoteWorld implements WorldContentRemote {
   _RemoteWorld({
     this.codex = const [],
     this.endings = const [],
+    this.covers = const {},
     this.endingsError,
   });
 
   final List<WorldContentEntry> codex;
   final List<WorldContentEntry> endings;
+  final Map<String, String> covers;
   final Object? endingsError;
 
   @override
@@ -121,19 +172,27 @@ class _RemoteWorld implements WorldContentRemote {
     if (endingsError != null) throw endingsError!;
     return endings;
   }
+
+  @override
+  Future<Map<String, String>> fetchScriptCovers() async => covers;
 }
 
 class _MemoryWorldCache implements WorldContentCache {
   WorldContentSnapshot? codex;
   WorldContentSnapshot? endings;
+  Map<String, String>? scriptCovers;
   int codexWrites = 0;
   int endingsWrites = 0;
+  int scriptCoverWrites = 0;
 
   @override
   Future<WorldContentSnapshot?> readCodex() async => codex;
 
   @override
   Future<WorldContentSnapshot?> readEndings() async => endings;
+
+  @override
+  Future<Map<String, String>?> readScriptCovers() async => scriptCovers;
 
   @override
   Future<void> writeCodex(WorldContentSnapshot snapshot) async {
@@ -145,5 +204,11 @@ class _MemoryWorldCache implements WorldContentCache {
   Future<void> writeEndings(WorldContentSnapshot snapshot) async {
     endingsWrites++;
     endings = snapshot;
+  }
+
+  @override
+  Future<void> writeScriptCovers(Map<String, String> covers) async {
+    scriptCoverWrites++;
+    scriptCovers = covers;
   }
 }

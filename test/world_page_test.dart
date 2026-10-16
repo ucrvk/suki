@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suki/models/world_content_entry.dart';
@@ -22,6 +23,11 @@ void main() {
     await tester.tap(find.text('世界观'));
     await tester.pumpAndSettle();
     expect(find.text('夜眠花'), findsOneWidget);
+    // 世界观条目标题即剧本名，卡片改用剧本自带封面。
+    expect(
+      _networkImageUrls(tester),
+      contains('https://example.com/cover.png'),
+    );
 
     await tester.tap(find.text('结局'));
     await tester.pumpAndSettle();
@@ -48,7 +54,25 @@ void main() {
     expect(find.text('结局加载失败'), findsOneWidget);
   });
 
-  testWidgets('hides endings that the account has not unlocked', (tester) async {
+  testWidgets('keeps the lore placeholder when script covers fail', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _testApp(WorldPage(dataSource: _WorldFixture(coversFail: true))),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('世界观'));
+    await tester.pumpAndSettle();
+
+    // 封面拉取失败只是没图，不影响条目本身。
+    expect(find.text('夜眠花'), findsOneWidget);
+    expect(_networkImageUrls(tester), isEmpty);
+    expect(find.byKey(const Key('world-image-fallback')), findsWidgets);
+  });
+
+  testWidgets('hides endings that the account has not unlocked', (
+    tester,
+  ) async {
     final spoiler = _FakeSpoilerModeStore(false);
     await tester.pumpWidget(
       _testApp(
@@ -68,7 +92,9 @@ void main() {
     expect(find.text('永恒安眠'), findsNothing);
   });
 
-  testWidgets('shows every ending once spoiler mode is enabled', (tester) async {
+  testWidgets('shows every ending once spoiler mode is enabled', (
+    tester,
+  ) async {
     final spoiler = _FakeSpoilerModeStore(false);
     await tester.pumpWidget(
       _testApp(
@@ -117,6 +143,12 @@ Widget _testApp(Widget child) => MaterialApp(
   home: Scaffold(body: child),
 );
 
+/// 当前树里所有网络图片的地址，用于断言卡片用了哪张封面。
+List<String> _networkImageUrls(WidgetTester tester) => tester
+    .widgetList<CachedNetworkImage>(find.byType(CachedNetworkImage))
+    .map((image) => image.imageUrl)
+    .toList();
+
 WorldContentEntry _codex(WorldContentKind kind, String title) {
   return WorldContentEntry(
     id: '${kind.name}-$title',
@@ -148,6 +180,10 @@ WorldContentEntry _ending() => WorldContentEntry(
 );
 
 class _WorldFixture implements WorldDataSource {
+  _WorldFixture({this.coversFail = false});
+
+  final bool coversFail;
+
   final codex = WorldContentSnapshot(
     entries: [
       _codex(WorldContentKind.witch, '纸樱'),
@@ -167,10 +203,19 @@ class _WorldFixture implements WorldDataSource {
   Future<WorldContentSnapshot?> loadCachedEndings() async => null;
 
   @override
+  Future<Map<String, String>?> loadCachedScriptCovers() async => null;
+
+  @override
   Future<WorldContentSnapshot> refreshCodex() async => codex;
 
   @override
   Future<WorldContentSnapshot> refreshEndings() async => endings;
+
+  @override
+  Future<Map<String, String>> refreshScriptCovers() async {
+    if (coversFail) throw Exception('covers offline');
+    return const {'夜眠花': 'https://example.com/cover.png'};
+  }
 }
 
 WorldContentEntry _endingEntry({
@@ -199,10 +244,14 @@ class _EndingsFixture implements WorldDataSource {
   Future<WorldContentSnapshot?> loadCachedEndings() async => null;
 
   @override
-  Future<WorldContentSnapshot> refreshCodex() async => WorldContentSnapshot(
-    entries: const [],
-    fetchedAt: DateTime(2026),
-  );
+  Future<Map<String, String>?> loadCachedScriptCovers() async => null;
+
+  @override
+  Future<Map<String, String>> refreshScriptCovers() async => const {};
+
+  @override
+  Future<WorldContentSnapshot> refreshCodex() async =>
+      WorldContentSnapshot(entries: const [], fetchedAt: DateTime(2026));
 
   @override
   Future<WorldContentSnapshot> refreshEndings() async => WorldContentSnapshot(
@@ -226,8 +275,7 @@ class _FakeUnlockRepository implements EndingUnlockRepository {
   Future<Set<String>> refresh(String userId) async => unlocked;
 }
 
-class _FakeSpoilerModeStore extends ChangeNotifier
-    implements SpoilerModeStore {
+class _FakeSpoilerModeStore extends ChangeNotifier implements SpoilerModeStore {
   _FakeSpoilerModeStore(this._enabled);
 
   bool _enabled;
@@ -282,6 +330,13 @@ class _FailingWorld implements WorldDataSource {
 
   @override
   Future<WorldContentSnapshot?> loadCachedEndings() async => null;
+
+  @override
+  Future<Map<String, String>?> loadCachedScriptCovers() async => null;
+
+  @override
+  Future<Map<String, String>> refreshScriptCovers() =>
+      Future.error(Exception('scripts offline'));
 
   @override
   Future<WorldContentSnapshot> refreshCodex() =>
