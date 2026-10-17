@@ -1,3 +1,4 @@
+import 'helpers/fake_my_booking_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suki/app_shell.dart';
@@ -20,6 +21,7 @@ void main() {
     await tester.pumpWidget(
       _testApp(
         AppShell(
+          myBookingService: FakeMyBookingService(),
           bookingDataSource: _FakeBookingDataSource(),
           rosterDataSource: source,
           worldDataSource: _EmptyWorldDataSource(),
@@ -57,6 +59,7 @@ void main() {
     await tester.pumpWidget(
       _testApp(
         AppShell(
+          myBookingService: FakeMyBookingService(),
           bookingDataSource: _FakeBookingDataSource(),
           rosterDataSource: _FakeDataSource(_sampleSnapshot()),
           worldDataSource: _EmptyWorldDataSource(),

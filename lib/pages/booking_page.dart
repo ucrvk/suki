@@ -11,6 +11,7 @@ import '../services/booking_script_service.dart';
 import '../services/booking_service.dart';
 import '../services/booking_session_service.dart';
 import '../services/booking_slot_service.dart';
+import '../services/my_booking_service.dart';
 import '../widgets/markdown_text.dart';
 import '../widgets/remote_image.dart';
 import '../theme/app_colors.dart';
@@ -47,6 +48,7 @@ class BookingPage extends StatefulWidget {
     this.slotDataSource,
     this.submitService,
     this.authService,
+    this.myBookingService,
   });
 
   final BookingPageController? controller;
@@ -56,6 +58,7 @@ class BookingPage extends StatefulWidget {
   final BookingSlotDataSource? slotDataSource;
   final BookingSubmitService? submitService;
   final AccountAuthService? authService;
+  final MyBookingService? myBookingService;
 
   @override
   State<BookingPage> createState() => _BookingPageState();
@@ -77,6 +80,13 @@ class _BookingPageState extends State<BookingPage> {
   bool _loading = true;
   bool _refreshing = false;
   bool _bookingEnabled = true;
+  late final MyBookingService _myBookingService;
+  List<MyBooking> _myBookings = const [];
+  bool _myBookingsLoading = false;
+  Object? _myBookingsError;
+  bool _canceling = false;
+  bool _cancelDialogOpen = false;
+  int _myBookingsRevision = 0;
 
   AccountAuthService? _authService;
   StreamSubscription<AccountIdentity?>? _authSubscription;
@@ -93,6 +103,7 @@ class _BookingPageState extends State<BookingPage> {
     _slotDataSource =
         widget.slotDataSource ?? RepositoryBookingSlotDataSource();
     _submitService = widget.submitService ?? SupabaseBookingService();
+    _myBookingService = widget.myBookingService ?? SupabaseMyBookingService();
     _initAuth();
     widget.controller?._scrollToTop = _scrollToTop;
     widget.controller?._refresh = () => unawaited(_refresh(showFailure: true));
@@ -106,9 +117,18 @@ class _BookingPageState extends State<BookingPage> {
     if (service == null) return;
     try {
       _userId = service.currentAccount?.id;
+      _myBookingsLoading = _userId != null;
       _authSubscription = service.authChanges.listen((account) {
         if (!mounted) return;
-        setState(() => _userId = account?.id);
+        if (_userId == account?.id) return;
+        _myBookingsRevision++;
+        setState(() {
+          _userId = account?.id;
+          _myBookings = const [];
+          _myBookingsError = null;
+          _myBookingsLoading = _userId != null;
+        });
+        if (_userId != null) unawaited(_loadMyBookings());
       }, onError: (_) {});
     } catch (_) {
       _authService = null;
@@ -149,6 +169,9 @@ class _BookingPageState extends State<BookingPage> {
     Object? slotsError;
     bool? bookingEnabled;
 
+    // Personal status must not hold the public script list hostage to a slow
+    // request from an account that may have already signed out.
+    unawaited(_loadMyBookings(showFailure: showFailure));
     await Future.wait<void>([
       () async {
         try {
@@ -217,6 +240,171 @@ class _BookingPageState extends State<BookingPage> {
     });
   }
 
+  Future<bool> _loadMyBookings({bool showFailure = false}) async {
+    final userId = _userId;
+    if (userId == null) return false;
+    final revision = ++_myBookingsRevision;
+    setState(() => _myBookingsLoading = true);
+    try {
+      final bookings = await _myBookingService.fetch(userId);
+      if (!mounted || _userId != userId || revision != _myBookingsRevision) {
+        return false;
+      }
+      setState(() {
+        _myBookings = bookings;
+        _myBookingsError = null;
+      });
+      return true;
+    } catch (error) {
+      if (!mounted || _userId != userId || revision != _myBookingsRevision) {
+        return false;
+      }
+      setState(() => _myBookingsError = error);
+      if (showFailure) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('预约状态刷新失败，请下拉重试')));
+      }
+      return false;
+    } finally {
+      if (mounted && _userId == userId && revision == _myBookingsRevision) {
+        setState(() => _myBookingsLoading = false);
+      }
+    }
+  }
+
+  Future<bool> _canBook(String? expectedUserId) async {
+    if (expectedUserId == null || _userId != expectedUserId || _canceling) {
+      return false;
+    }
+    final loaded = await _loadMyBookings(showFailure: true);
+    if (!mounted || _userId != expectedUserId || !loaded) return false;
+    if (_myBookings.isNotEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('您已有预约，请先取消现有预约')));
+      return false;
+    }
+    return true;
+  }
+
+  String _myBookingDescription(MyBooking booking) {
+    final session = _sessions
+        .where((s) => s.id == booking.sessionId)
+        .firstOrNull;
+    if (session == null) return '场次 ${booking.sessionId} · ${booking.guests} 人';
+    final script = _scripts.where((s) => s.id == session.scriptId).firstOrNull;
+    return '${script?.name ?? session.scriptId}\n${session.label} · ${booking.guests} 人';
+  }
+
+  List<MyBooking> _bookingsForScript(String scriptId) {
+    final sessionIds = _sessions
+        .where((session) => session.scriptId == scriptId)
+        .map((session) => session.id)
+        .toSet();
+    return _myBookings
+        .where((booking) => sessionIds.contains(booking.sessionId))
+        .toList(growable: false);
+  }
+
+  Future<void> _cancelBooking(String scriptId) async {
+    if (_canceling || _cancelDialogOpen || _myBookings.isEmpty) return;
+    final userId = _userId;
+    final bookings = _bookingsForScript(scriptId);
+    if (bookings.isEmpty) return;
+    var selected = bookings.first;
+    _cancelDialogOpen = true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('取消预约'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('确认取消以下预约吗？'),
+                const SizedBox(height: 12),
+                if (bookings.length == 1)
+                  Text(_myBookingDescription(selected))
+                else
+                  for (final booking in bookings)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        selected.sessionId == booking.sessionId
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                      ),
+                      title: Text(_myBookingDescription(booking)),
+                      onTap: () => setDialogState(() => selected = booking),
+                    ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('返回'),
+            ),
+            FilledButton(
+              key: const Key('confirm-cancel-booking'),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('确认取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+    _cancelDialogOpen = false;
+    if (!mounted || confirmed != true || _userId != userId || userId == null) {
+      return;
+    }
+    setState(() => _canceling = true);
+    // Invalidate queries started before this mutation.
+    _myBookingsRevision++;
+    _myBookingsLoading = false;
+    try {
+      await _myBookingService.cancel(selected.sessionId);
+    } catch (error) {
+      if (mounted && _userId == userId) {
+        setState(() => _canceling = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(bookingErrorMessage(error))));
+      } else if (mounted) {
+        setState(() => _canceling = false);
+      }
+      return;
+    }
+    if (!mounted) return;
+    if (_userId == userId) {
+      setState(() {
+        _myBookings = _myBookings
+            .where((b) => b.sessionId != selected.sessionId)
+            .toList();
+        // A failed follow-up query must not re-enable booking without confirmation.
+        _myBookingsError = StateError('等待确认预约状态');
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已取消预约')));
+      await _loadMyBookings(showFailure: true);
+      try {
+        final sessions = await _sessionDataSource.fetchSessions();
+        if (mounted && _userId == userId) setState(() => _sessions = sessions);
+      } catch (_) {
+        if (mounted && _userId == userId) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('名额刷新失败，请下拉重试')));
+        }
+      }
+    }
+    if (mounted) setState(() => _canceling = false);
+  }
+
   Future<void> _scrollToTop() async {
     if (!_scrollController.hasClients) return;
     await _scrollController.animateTo(
@@ -244,6 +432,9 @@ class _BookingPageState extends State<BookingPage> {
     BookingScriptEntry script,
     List<BookingSession> sessions,
   ) async {
+    final userId = _userId;
+    if (!await _canBook(userId)) return;
+    if (!mounted) return;
     // 点击瞬间重新校验时间槽，避免停留在页面太久后过期提交（服务端仍会兜底）。
     if (!resolveBookingWindow(_slots, DateTime.now()).isOpen) {
       ScaffoldMessenger.of(
@@ -263,6 +454,7 @@ class _BookingPageState extends State<BookingPage> {
       if (confirmed != true || !mounted) return;
     }
     if (!mounted) return;
+    if (_userId != userId || _myBookings.isNotEmpty) return;
 
     final booked = await showDialog<bool>(
       context: context,
@@ -280,11 +472,19 @@ class _BookingPageState extends State<BookingPage> {
             title: script.name,
             sessions: sessions,
             submitService: _submitService,
+            beforeSubmit: () => _canBook(userId),
+            onBooked: (sessionId, guests) {
+              if (!mounted || _userId != userId) return;
+              _myBookingsRevision++;
+              setState(() {
+                _myBookings = [MyBooking(sessionId: sessionId, guests: guests)];
+              });
+            },
           ),
         ),
       ),
     );
-    if (!mounted || booked != true) return;
+    if (!mounted || booked != true || _userId != userId) return;
 
     ScaffoldMessenger.of(
       context,
@@ -682,6 +882,14 @@ class _BookingPageState extends State<BookingPage> {
     BookingScriptEntry script,
     BookingWindowState window,
   ) {
+    if (_canceling) return null;
+    if (_userId != null && _myBookings.isNotEmpty) {
+      if (_bookingsForScript(script.id).isEmpty) return null;
+      return () => unawaited(_cancelBooking(script.id));
+    }
+    if (_userId != null && (_myBookingsLoading || _myBookingsError != null)) {
+      return null;
+    }
     if (!_bookingEnabled) return null;
     if (_userId == null) return null;
     // 拿不到时间槽时宁可不让约，避免放行过期预约（fail-closed）。
@@ -695,6 +903,13 @@ class _BookingPageState extends State<BookingPage> {
   }
 
   String _applyLabel(BookingScriptEntry script, BookingWindowState window) {
+    if (_userId != null && _myBookings.isNotEmpty) {
+      if (_bookingsForScript(script.id).isEmpty) return '预约数量已满';
+      return _canceling ? '取消中…' : '取消预约';
+    }
+    if (_canceling) return '取消中…';
+    if (_userId != null && _myBookingsLoading) return '预约状态加载中';
+    if (_userId != null && _myBookingsError != null) return '预约状态加载失败';
     if (!_bookingEnabled) return '预约未开放';
     if (_userId == null) return '登录后可预约';
     if (_slotsError != null && _slots.isEmpty) return '预约时间加载失败';
@@ -897,11 +1112,15 @@ class _BookingSheet extends StatefulWidget {
     required this.title,
     required this.sessions,
     required this.submitService,
+    required this.beforeSubmit,
+    required this.onBooked,
   });
 
   final String title;
   final List<BookingSession> sessions;
   final BookingSubmitService submitService;
+  final Future<bool> Function() beforeSubmit;
+  final void Function(String sessionId, int guests) onBooked;
 
   @override
   State<_BookingSheet> createState() => _BookingSheetState();
@@ -966,6 +1185,16 @@ class _BookingSheetState extends State<_BookingSheet> {
       _submitError = null;
     });
     try {
+      if (!await widget.beforeSubmit()) {
+        if (mounted) {
+          setState(() {
+            _submitting = false;
+            _submitError = '预约状态已变化或无法确认，请关闭弹窗后重试';
+          });
+        }
+        return;
+      }
+      if (!mounted) return;
       await widget.submitService.book(
         sessionId: session.id,
         guests: _guests,
@@ -973,6 +1202,7 @@ class _BookingSheetState extends State<_BookingSheet> {
             .map((c) => c.text.trim())
             .toList(growable: false),
       );
+      widget.onBooked(session.id, _guests);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (error) {

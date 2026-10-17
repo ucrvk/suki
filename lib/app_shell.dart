@@ -11,6 +11,7 @@ import 'services/bgm_controller.dart';
 import 'services/booking_service.dart';
 import 'services/booking_session_service.dart';
 import 'services/booking_slot_service.dart';
+import 'services/my_booking_service.dart';
 import 'services/spoiler_mode_store.dart';
 
 class AppShell extends StatefulWidget {
@@ -20,6 +21,7 @@ class AppShell extends StatefulWidget {
     this.bookingSessionDataSource,
     this.bookingSlotDataSource,
     this.bookingService,
+    this.myBookingService,
     this.rosterDataSource,
     this.rosterSlotDataSource,
     this.worldDataSource,
@@ -33,6 +35,7 @@ class AppShell extends StatefulWidget {
   final BookingSessionDataSource? bookingSessionDataSource;
   final BookingSlotDataSource? bookingSlotDataSource;
   final BookingSubmitService? bookingService;
+  final MyBookingService? myBookingService;
   final RosterDataSource? rosterDataSource;
   final BookingSlotDataSource? rosterSlotDataSource;
   final WorldDataSource? worldDataSource;
@@ -103,6 +106,7 @@ class _AppShellState extends State<AppShell> {
           sessionDataSource: widget.bookingSessionDataSource,
           slotDataSource: widget.bookingSlotDataSource,
           submitService: widget.bookingService,
+          myBookingService: widget.myBookingService,
           authService: widget.authService,
         ),
         RosterPage(

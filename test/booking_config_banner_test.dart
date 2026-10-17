@@ -1,3 +1,4 @@
+import 'helpers/fake_my_booking_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:suki/models/booking_script_entry.dart';
@@ -31,6 +32,7 @@ class _Config implements BookingConfigDataSource {
 
 Widget app(bool enabled, {bool throwError = false}) => MaterialApp(
   home: BookingPage(
+    myBookingService: FakeMyBookingService(),
     dataSource: _Scripts(),
     configDataSource: _Config(enabled, throwError: throwError),
   ),
