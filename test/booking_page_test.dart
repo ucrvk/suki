@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'helpers/fake_my_booking_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +14,7 @@ import 'package:suki/services/booking_config_service.dart';
 import 'package:suki/services/booking_service.dart';
 import 'package:suki/services/booking_session_service.dart';
 import 'package:suki/services/booking_slot_service.dart';
+import 'package:suki/services/my_booking_service.dart';
 
 const _notice = BookingNotice(
   title: '预约前，请听魔女一句',
@@ -160,6 +164,32 @@ class _Auth implements AccountAuthService {
   Future<void> updatePassword(String password) async {}
 }
 
+class _ChangingAuth extends _Auth {
+  _ChangingAuth() : super(account: _identity('u1'));
+  final changes = StreamController<AccountIdentity?>.broadcast();
+
+  @override
+  Stream<AccountIdentity?> get authChanges => changes.stream;
+}
+
+class _PendingMine extends FakeMyBookingService {
+  final firstQuery = Completer<List<MyBooking>>();
+  final cancelQuery = Completer<void>();
+  bool holdCancel = false;
+
+  @override
+  Future<List<MyBooking>> fetch(String userId) {
+    if (userId == 'u1') return firstQuery.future;
+    return super.fetch(userId);
+  }
+
+  @override
+  Future<void> cancel(String sessionId) async {
+    if (holdCancel) await cancelQuery.future;
+    return super.cancel(sessionId);
+  }
+}
+
 AccountIdentity _identity(String id) => AccountIdentity(
   id: id,
   email: 'a@b.c',
@@ -182,10 +212,12 @@ Widget _page({
   bool slotsFail = false,
   bool enabled = true,
   BookingSubmitService? submit,
+  MyBookingService? mine,
   AccountIdentity? account,
 }) => MaterialApp(
   home: Scaffold(
     body: BookingPage(
+      myBookingService: mine ?? FakeMyBookingService(),
       // 每次 pump 都是新实例，避免测试里复用旧 State 的缓存数据。
       key: UniqueKey(),
       dataSource: _Scripts(scripts),
@@ -199,6 +231,181 @@ Widget _page({
 );
 
 void main() {
+  testWidgets('ignores a late response after switching account', (
+    tester,
+  ) async {
+    final auth = _ChangingAuth();
+    addTearDown(auth.changes.close);
+    final mine = _PendingMine();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BookingPage(
+            dataSource: _Scripts([_script()]),
+            configDataSource: _Config(),
+            sessionDataSource: _Sessions([_session()]),
+            slotDataSource: _Slots(),
+            submitService: _Submit(),
+            authService: auth,
+            myBookingService: mine,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(_applyLabel(tester), '预约状态加载中');
+    auth.changes.add(_identity('u2'));
+    await tester.pumpAndSettle();
+    expect(_applyLabel(tester), '预约');
+    mine.firstQuery.complete([
+      const MyBooking(sessionId: 'old-user', guests: 1),
+    ]);
+    await tester.pumpAndSettle();
+    expect(_applyLabel(tester), '预约');
+  });
+
+  testWidgets('cancel in flight disables all actions', (tester) async {
+    final mine = _PendingMine()..holdCancel = true;
+    final booking = const MyBooking(sessionId: 'existing', guests: 1);
+    mine.bookings = [booking];
+    mine.firstQuery.complete([booking]);
+    await tester.pumpWidget(
+      _page(
+        scripts: [_script()],
+        sessions: [_session(id: 'existing')],
+        account: _identity('u1'),
+        mine: mine,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('booking-apply-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-cancel-booking')));
+    await tester.pumpAndSettle();
+    expect(_applyLabel(tester), '取消中…');
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('booking-apply-button')))
+          .onPressed,
+      isNull,
+    );
+    mine.cancelQuery.complete();
+    await tester.pumpAndSettle();
+    expect(mine.canceled, ['existing']);
+  });
+
+  testWidgets(
+    'only the booked script can cancel while other scripts are quota full',
+    (tester) async {
+      final mine = FakeMyBookingService()
+        ..bookings = [const MyBooking(sessionId: 'existing', guests: 2)];
+      await tester.pumpWidget(
+        _page(
+          scripts: [
+            _script(),
+            _script(id: 's2'),
+          ],
+          sessions: [_session(id: 'existing')],
+          enabled: false,
+          account: _identity('u1'),
+          mine: mine,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('取消预约'), findsOneWidget);
+      expect(find.text('预约数量已满'), findsOneWidget);
+      final buttons = tester
+          .widgetList<FilledButton>(
+            find.byKey(const Key('booking-apply-button')),
+          )
+          .toList();
+      expect(buttons.first.onPressed, isNotNull);
+      expect(buttons.last.onPressed, isNull);
+      await tester.tap(find.byKey(const Key('booking-apply-button')).first);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('2 人'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('confirm-cancel-booking')));
+      await tester.pumpAndSettle();
+      expect(mine.canceled, ['existing']);
+      expect(find.text('已取消预约'), findsOneWidget);
+      expect(find.text('取消预约'), findsNothing);
+      expect(find.text('预约未开放'), findsWidgets);
+    },
+  );
+
+  testWidgets('failed cancellation retains reservation and server message', (
+    tester,
+  ) async {
+    final mine = FakeMyBookingService()
+      ..bookings = [const MyBooking(sessionId: 'sess-1', guests: 1)]
+      ..cancelError = const PostgrestException(message: '不可取消');
+    await tester.pumpWidget(
+      _page(
+        scripts: [_script()],
+        sessions: [_session(booked: 10)],
+        account: _identity('u1'),
+        mine: mine,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('booking-apply-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-cancel-booking')));
+    await tester.pumpAndSettle();
+    expect(_applyLabel(tester), '取消预约');
+    expect(find.text('不可取消'), findsOneWidget);
+  });
+
+  testWidgets('reservation status failure blocks new booking', (tester) async {
+    final mine = FakeMyBookingService()..fetchError = Exception('offline');
+    await tester.pumpWidget(
+      _page(
+        scripts: [_script()],
+        sessions: [_session()],
+        account: _identity('u1'),
+        mine: mine,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(_applyLabel(tester), '预约状态加载失败');
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('booking-apply-button')))
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets(
+    'multiple reservations allow choosing one and still block booking',
+    (tester) async {
+      final mine = FakeMyBookingService()
+        ..bookings = [
+          const MyBooking(sessionId: 'first-id', guests: 1),
+          const MyBooking(sessionId: 'second-id', guests: 2),
+        ];
+      await tester.pumpWidget(
+        _page(
+          scripts: [_script()],
+          sessions: [
+            _session(id: 'first-id'),
+            _session(id: 'second-id'),
+          ],
+          account: _identity('u1'),
+          mine: mine,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-apply-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(ListTile).last);
+      await tester.tap(find.byKey(const Key('confirm-cancel-booking')));
+      await tester.pumpAndSettle();
+      expect(mine.canceled, ['second-id']);
+      expect(_applyLabel(tester), '取消预约');
+    },
+  );
+
   testWidgets('disables apply button when logged out', (tester) async {
     await tester.pumpWidget(_page(scripts: [_script(notice: _notice)]));
     await tester.pumpAndSettle();
@@ -595,6 +802,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BookingPage(
+            myBookingService: FakeMyBookingService(),
             dataSource: _Scripts([_script()]),
             configDataSource: _Config(),
             sessionDataSource: sessions,
