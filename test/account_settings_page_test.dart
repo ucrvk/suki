@@ -136,6 +136,13 @@ class _SettingsAuthService implements AccountAuthService {
   }) async => _account;
 
   @override
+  Future<AccountIdentity?> signUp({
+    required String email,
+    required String password,
+    String? username,
+  }) async => null;
+
+  @override
   Future<void> signOut() async {}
 
   @override
