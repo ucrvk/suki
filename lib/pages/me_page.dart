@@ -1,18 +1,18 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/account_service.dart';
+import '../services/app_update_service.dart';
 import '../services/bgm_controller.dart';
 import '../services/spoiler_mode_store.dart';
 import '../widgets/account_avatar.dart';
 import 'account_settings_page.dart';
 import '../theme/app_colors.dart';
-
-const String _githubRepoUrl = 'https://github.com/ucrvk/suki';
 
 class MePage extends StatefulWidget {
   const MePage({
@@ -21,12 +21,14 @@ class MePage extends StatefulWidget {
     this.profileService,
     this.spoilerModeStore,
     this.bgmController,
+    this.updateService,
   });
 
   final AccountAuthService? authService;
   final AccountProfileService? profileService;
   final SpoilerModeStore? spoilerModeStore;
   final BgmController? bgmController;
+  final AppUpdateService? updateService;
 
   @override
   State<MePage> createState() => _MePageState();
@@ -35,9 +37,14 @@ class MePage extends StatefulWidget {
 class _MePageState extends State<MePage> {
   late final AccountAuthService _authService;
   late final AccountProfileService _profileService;
+  late final AppUpdateService _updateService;
   StreamSubscription<AccountIdentity?>? _authSubscription;
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _registerUsernameController = TextEditingController();
+  final _registerEmailController = TextEditingController();
+  final _registerPasswordController = TextEditingController();
+  final _registerConfirmController = TextEditingController();
   SpoilerModeStore? _spoilerStore;
   BgmController? _bgmController;
 
@@ -45,15 +52,18 @@ class _MePageState extends State<MePage> {
   bool _loggingOut = false;
   bool _spoilerEnabled = false;
   bool _bgmEnabled = false;
+  bool _checkingUpdate = false;
   AccountIdentity? _account;
   AccountProfile _profile = const AccountProfile.empty();
   String _appVersion = '-';
+  String? _latestVersion;
 
   @override
   void initState() {
     super.initState();
     _authService = widget.authService ?? SupabaseAccountAuthService();
     _profileService = widget.profileService ?? SupabaseAccountProfileService();
+    _updateService = widget.updateService ?? AppUpdateService();
     _authSubscription = _authService.authChanges.listen(_applyAccount);
     _spoilerStore = widget.spoilerModeStore;
     _spoilerEnabled = _spoilerStore?.value ?? false;
@@ -72,6 +82,10 @@ class _MePageState extends State<MePage> {
     _authSubscription?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
+    _registerUsernameController.dispose();
+    _registerEmailController.dispose();
+    _registerPasswordController.dispose();
+    _registerConfirmController.dispose();
     super.dispose();
   }
 
@@ -146,7 +160,9 @@ class _MePageState extends State<MePage> {
   }
 
   Future<void> _showLoginDialog() async {
-    _emailController.text = _account?.email ?? '';
+    final account = _account;
+    // 未登录时保留上次输入的邮箱（注册成功后会回填），已登录则回填账号邮箱。
+    if (account != null) _emailController.text = account.email;
     _passwordController.clear();
     var submitting = false;
 
@@ -234,6 +250,135 @@ class _MePageState extends State<MePage> {
     );
   }
 
+  Future<void> _showRegisterDialog() async {
+    _registerUsernameController.clear();
+    _registerEmailController.text = _emailController.text.trim();
+    _registerPasswordController.clear();
+    _registerConfirmController.clear();
+    var submitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: !submitting,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submit() async {
+              final username = _registerUsernameController.text.trim();
+              final email = _registerEmailController.text.trim();
+              final password = _registerPasswordController.text;
+              if (username.isEmpty || email.isEmpty || password.isEmpty) {
+                _showMessage('请输入用户名、邮箱和密码');
+                return;
+              }
+              if (password.length < 6) {
+                _showMessage('密码至少 6 位');
+                return;
+              }
+              if (password != _registerConfirmController.text) {
+                _showMessage('两次输入的密码不一致');
+                return;
+              }
+              setDialogState(() => submitting = true);
+              try {
+                final account = await _authService.signUp(
+                  email: email,
+                  password: password,
+                  username: username,
+                );
+                if (!dialogContext.mounted) return;
+                Navigator.of(dialogContext).pop();
+                // 回填邮箱，方便确认邮件后直接登录。
+                _emailController.text = email;
+                if (account != null) {
+                  await _applyAccount(account);
+                  _showMessage('注册成功');
+                } else {
+                  _showMessage('注册成功，请到邮箱点击确认链接后再登录');
+                }
+              } catch (error) {
+                _showMessage(signUpErrorMessage(error));
+              } finally {
+                if (dialogContext.mounted) {
+                  setDialogState(() => submitting = false);
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('注册'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      key: const Key('register-username'),
+                      controller: _registerUsernameController,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(labelText: 'VRC用户名'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('register-email'),
+                      controller: _registerEmailController,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(labelText: '邮箱'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('register-password'),
+                      controller: _registerPasswordController,
+                      obscureText: true,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: '密码',
+                        helperText: '至少 6 位',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('register-confirm-password'),
+                      controller: _registerConfirmController,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: '确认密码'),
+                      onSubmitted: (_) => submit(),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: submitting
+                      ? null
+                      : () => Navigator.of(context).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  key: const Key('register-submit-button'),
+                  onPressed: submitting ? null : submit,
+                  child: submitting
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('注册'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _logout() async {
     if (_loggingOut) return;
     setState(() => _loggingOut = true);
@@ -280,17 +425,87 @@ class _MePageState extends State<MePage> {
     }
   }
 
-  Future<void> _openGitHub() async {
-    final uri = Uri.parse(_githubRepoUrl);
-    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+  /// 检查更新的适用平台：Android 与桌面端（Linux / Windows）。
+  /// web 刷新页面就是最新版，不提供按钮。
+  bool get _supportsUpdateCheck =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.windows);
+
+  /// 检查更新：拉取 GitHub 最新 tag 并与当前版本比对。
+  Future<void> _checkForUpdate() async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    AppUpdateInfo? info;
+    Object? failure;
+    try {
+      info = await _updateService.check();
+    } catch (error) {
+      failure = error;
+    }
+    if (!mounted) return;
+    setState(() {
+      _checkingUpdate = false;
+      _latestVersion = info != null && info.hasUpdate ? info.latestTag : null;
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (failure != null) {
+      messenger.showSnackBar(const SnackBar(content: Text('检查更新失败，请检查网络后重试')));
+      return;
+    }
+    final result = info!;
+    if (!result.hasUpdate) {
+      messenger.showSnackBar(SnackBar(content: Text('已是最新版本 $_appVersion')));
+      return;
+    }
+    await _showUpdateDialog(result);
+  }
+
+  Future<void> _showUpdateDialog(AppUpdateInfo info) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('发现新版本'),
+        content: Text('最新版本 ${info.latestTag}，当前版本 $_appVersion。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            key: const Key('open-latest-release-button'),
+            onPressed: () {
+              Navigator.of(context).pop();
+              unawaited(
+                _openUrl(info.releaseUri ?? Uri.parse(sukiGitHubRepoUrl)),
+              );
+            },
+            child: const Text('前往查看'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openUrl(Uri uri) async {
+    var opened = false;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      opened = false;
+    }
     if (opened) return;
     if (!mounted) return;
-    await Clipboard.setData(const ClipboardData(text: _githubRepoUrl));
+    await Clipboard.setData(ClipboardData(text: uri.toString()));
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('无法直接打开浏览器，已复制链接到剪贴板')));
   }
+
+  Future<void> _openGitHub() => _openUrl(Uri.parse(sukiGitHubRepoUrl));
 
   @override
   Widget build(BuildContext context) {
@@ -360,17 +575,28 @@ class _MePageState extends State<MePage> {
             const ListTile(
               leading: Icon(Icons.account_circle_outlined),
               title: Text('账号', style: TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: Text('登录后管理您的个人资料'),
+              subtitle: Text('登录或注册后管理您的个人资料'),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  key: const Key('open-login-button'),
-                  onPressed: _showLoginDialog,
-                  child: const Text('登录'),
-                ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      key: const Key('open-register-button'),
+                      onPressed: _showRegisterDialog,
+                      child: const Text('注册'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      key: const Key('open-login-button'),
+                      onPressed: _showLoginDialog,
+                      child: const Text('登录'),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -485,9 +711,28 @@ class _MePageState extends State<MePage> {
               style: TextStyle(fontWeight: FontWeight.w800),
             ),
             subtitle: Text(
-              _appVersion,
-              style: const TextStyle(color: AppColors.textMuted),
+              _latestVersion == null
+                  ? _appVersion
+                  : '$_appVersion · 有新版本 $_latestVersion',
+              style: TextStyle(
+                color: _latestVersion == null
+                    ? AppColors.textMuted
+                    : AppColors.accent,
+              ),
             ),
+            // 仅 Android / 桌面端提供检查更新，web 刷新即最新。
+            trailing: _supportsUpdateCheck
+                ? TextButton(
+                    key: const Key('check-update-button'),
+                    onPressed: _checkingUpdate ? null : _checkForUpdate,
+                    child: _checkingUpdate
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('检查更新'),
+                  )
+                : null,
           ),
           const Divider(height: 1, color: AppColors.divider),
           ListTile(
