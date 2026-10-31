@@ -155,26 +155,30 @@
       margin: 0 0 18px;
     }
 
-    .tip-wrap {
-      min-height: 84px;
+    .tip-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
       display: flex;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
     }
 
-    .tip-text {
+    .tip-line {
       color: var(--text-color);
       font-size: 15px;
       line-height: 1.7;
       letter-spacing: 0.01em;
-      transition: opacity 0.35s ease, transform 0.35s ease;
-      max-width: 100%;
-      white-space: pre-line;
-    }
-
-    .tip-text.is-fading {
       opacity: 0;
       transform: translateY(6px);
+      animation: tipIn 0.5s ease forwards;
+    }
+
+    @keyframes tipIn {
+      to {
+        opacity: 1;
+        transform: none;
+      }
     }
 
     @keyframes charJump {
@@ -208,11 +212,11 @@
         margin-bottom: 16px;
       }
 
-      .tip-wrap {
-        min-height: 96px;
+      .tip-list {
+        gap: 12px;
       }
 
-      .tip-text {
+      .tip-line {
         font-size: 15px;
         line-height: 1.7;
       }
@@ -232,7 +236,7 @@
         font-size: 22px;
       }
 
-      .tip-text {
+      .tip-line {
         font-size: 14px;
       }
     }
@@ -256,11 +260,9 @@
           </span>
         </div>
         <div class="loading-divider" aria-hidden="true"></div>
-        <div class="tip-wrap">
-        <div class="tip-text" id="loading-tip"></div>
+        <ul class="tip-list" id="loading-tips"></ul>
       </div>
     </div>
-  </div>
 
   <script src="flutter_bootstrap.js" async></script>
   <script>
@@ -280,49 +282,28 @@
       }
 
       const loadingScreen = document.getElementById('loading-screen');
-      const tipText = document.getElementById('loading-tip');
+      const tipList = document.getElementById('loading-tips');
       const tips = [
-        '🎀 你可以预约指定女仆的服务时间段',
-        '🌸 排班页面可以查看所有女仆的排班计划',
-        '🎀 预约成功后可以在我的页面查看记录',
-        '🌸 支持携带好友一同前往',
-        '🎀 数据已缓存，离线也可查看排班',
-        '🌸 单击底栏可以回到最顶上，双击顶栏可以刷新'
+        '这里是开在 VR Chat 里的一间猫娘咖啡厅',
+        '只有一群认真营业的猫娘，和一间永远为你亮着灯的小店',
+        '像路过街角的橱窗一样，先在窗外看看，再推门进来'
       ];
 
-      let tipIndex = 0;
-      let tipTimer = null;
       let hideTimer = null;
       let observer = null;
       let hidden = false;
 
-      function setTip(nextIndex) {
-        if (!tipText) {
+      function renderTips() {
+        if (!tipList) {
           return;
         }
-        tipText.classList.add('is-fading');
-        window.setTimeout(function () {
-          tipIndex = nextIndex;
-          tipText.textContent = tips[tipIndex];
-          tipText.classList.remove('is-fading');
-        }, 220);
-      }
-
-      function startTipRotation() {
-        if (tipTimer) {
-          return;
-        }
-        tipText.textContent = tips[0];
-        tipTimer = window.setInterval(function () {
-          setTip((tipIndex + 1) % tips.length);
-        }, 4000);
-      }
-
-      function stopTipRotation() {
-        if (tipTimer) {
-          window.clearInterval(tipTimer);
-          tipTimer = null;
-        }
+        tips.forEach(function (tip, index) {
+          const line = document.createElement('li');
+          line.className = 'tip-line';
+          line.style.animationDelay = (0.1 + index * 0.12) + 's';
+          line.textContent = tip;
+          tipList.appendChild(line);
+        });
       }
 
       function hideLoading() {
@@ -330,7 +311,6 @@
           return;
         }
         hidden = true;
-        stopTipRotation();
         loadingScreen.classList.add('is-hiding');
         if (hideTimer) {
           window.clearTimeout(hideTimer);
@@ -354,7 +334,7 @@
         }
       }
 
-      startTipRotation();
+      renderTips();
       checkFlutterReady();
 
       observer = new MutationObserver(function () {
