@@ -4,11 +4,12 @@ import 'dart:developer' as dev;
 import 'package:http/http.dart' as http;
 
 import 'maid_content_cache_store.dart';
+import 'backend_request_headers.dart';
 
 class MaidImageManifestService {
   MaidImageManifestService._();
 
-  static const String baseUrl = 'https://api.wenwen12305.top/suki/';
+  static String get baseUrl => '${BackendRequestHeaders.normalizedBaseUrl}/';
   static const String _manifestPath = 'manifest.json';
   static const String _imagesPath = 'images';
   static const String _cacheKey = 'maid_image_manifest';
@@ -50,7 +51,11 @@ class MaidImageManifestService {
 
     final manifestUri = Uri.parse('$baseUrl$_manifestPath');
     try {
-      final response = await http.get(manifestUri);
+      await BackendRequestHeaders.initialize();
+      final response = await http.get(
+        manifestUri,
+        headers: BackendRequestHeaders.forUrl(manifestUri.toString()),
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw Exception('HTTP ${response.statusCode}');
       }

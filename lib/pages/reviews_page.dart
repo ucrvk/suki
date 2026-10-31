@@ -1,4 +1,6 @@
-﻿import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
+import '../services/backend_request_headers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -416,6 +418,10 @@ class ReviewsPageState extends State<ReviewsPage> {
                       )
                     : CachedNetworkImage(
                         imageUrl: group.maidImage,
+                        httpHeaders: BackendRequestHeaders.forUrl(group.maidImage),
+                        imageRenderMethodForWeb: BackendRequestHeaders.isBackendUrl(group.maidImage)
+                            ? ImageRenderMethodForWeb.HttpGet
+                            : ImageRenderMethodForWeb.HtmlImage,
                         fit: BoxFit.cover,
                         width: double.infinity,
                         placeholder: (context, url) => const Center(

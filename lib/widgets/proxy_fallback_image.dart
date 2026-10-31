@@ -1,3 +1,5 @@
+import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
+import '../services/backend_request_headers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -64,6 +66,10 @@ class _ProxyFallbackImageState extends State<ProxyFallbackImage> {
   @override
   Widget build(BuildContext context) {
     return CachedNetworkImage(
+      httpHeaders: BackendRequestHeaders.forUrl(_activeUrl),
+      imageRenderMethodForWeb: BackendRequestHeaders.isBackendUrl(_activeUrl)
+          ? ImageRenderMethodForWeb.HttpGet
+          : ImageRenderMethodForWeb.HtmlImage,
       imageUrl: _activeUrl,
       fit: widget.fit,
       alignment: widget.alignment,

@@ -4,45 +4,34 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/app_update_service.dart';
 import '../services/auth_log_service.dart';
 import '../services/maid_catalog_cache_service.dart';
-import '../services/fcm_service.dart';
-import '../services/sysbooking_api_service.dart';
-import '../services/sysbooking_session_store.dart';
 import '../services/queue_tab_settings.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
 import 'account_settings_page.dart';
 
 class MePage extends StatefulWidget {
-  const MePage({super.key});
+  const MePage({super.key, this.updateService});
+
+  final AppUpdateService? updateService;
 
   @override
   State<MePage> createState() => _MePageState();
 }
 
 class _MePageState extends State<MePage> {
-  static const _notificationEnabledKey = 'notification_enabled';
-  static const _bookingOpenEnabledKey = 'notification_booking_open_enabled';
-  static const _queueNotificationEnabledKey = 'queue_notification_enabled';
-  static const _queueNotificationFcmTokenKey = 'queue_notification_fcm_token';
-
   bool _loading = true;
   bool _isLoggedIn = false;
   bool _submitting = false;
-  bool _notificationLoading = true;
-  bool _notificationSubmitting = false;
-  bool _notificationEnabled = false;
-  bool _bookingOpenEnabled = false;
-  bool _queueNotificationLoading = true;
-  bool _queueNotificationSubmitting = false;
-  bool _queueNotificationEnabled = false;
   bool _authLogExporting = false;
+  bool _checkingUpdate = false;
+  String? _latestVersion;
+  late final AppUpdateService _updateService;
   String? _email;
   String? _username;
   String? _announcement;
@@ -52,15 +41,18 @@ class _MePageState extends State<MePage> {
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _registerUsernameController = TextEditingController();
+  final _registerEmailController = TextEditingController();
+  final _registerPasswordController = TextEditingController();
+  final _registerConfirmController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _updateService = widget.updateService ?? AppUpdateService();
     _restoreAuth();
     _loadAnnouncement();
     _loadAppVersion();
-    unawaited(_loadNotificationSettings());
-    unawaited(_loadQueueNotificationSettings());
     unawaited(QueueTabSettings.load());
     _queueTabListener = () {
       if (mounted) {
@@ -81,6 +73,11 @@ class _MePageState extends State<MePage> {
     _authStateSub?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
+    _registerUsernameController.dispose();
+    _registerEmailController.dispose();
+    _registerPasswordController.dispose();
+    _registerConfirmController.dispose();
+
     super.dispose();
   }
 
@@ -96,9 +93,94 @@ class _MePageState extends State<MePage> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _appVersion = 'v1.0.0+1';
+        _appVersion = '版本未知';
       });
     }
+  }
+
+  /// 检查更新的适用平台：Android 与桌面端（Linux / Windows）。
+  /// web 刷新页面就是最新版，不提供按钮。
+  bool get _supportsUpdateCheck =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.windows);
+
+  /// 检查更新：拉取 GitHub 最新 tag 并与当前版本比对。
+  Future<void> _checkForUpdate() async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    AppUpdateInfo? info;
+    Object? failure;
+    try {
+      info = await _updateService.check();
+    } catch (error) {
+      failure = error;
+    }
+    if (!mounted) return;
+    setState(() {
+      _checkingUpdate = false;
+      _latestVersion = info != null && info.hasUpdate ? info.latestTag : null;
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (failure != null) {
+      messenger.showSnackBar(const SnackBar(content: Text('检查更新失败，请检查网络后重试')));
+      return;
+    }
+    final result = info!;
+    if (!result.hasUpdate) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            result.latestTag == null ? '暂无可用的 2.x 正式版本' : '已是最新版本 $_appVersion',
+          ),
+        ),
+      );
+      return;
+    }
+    await _showUpdateDialog(result);
+  }
+
+  Future<void> _showUpdateDialog(AppUpdateInfo info) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('发现新版本'),
+        content: Text('最新版本 ${info.latestTag}，当前版本 ${info.currentVersion}。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            key: const Key('open-latest-release-button'),
+            onPressed: () {
+              Navigator.of(context).pop();
+              unawaited(
+                _openUrl(info.releaseUri ?? Uri.parse(sukiGitHubRepoUrl)),
+              );
+            },
+            child: const Text('前往查看'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openUrl(Uri uri) async {
+    var opened = false;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // Fall back to copying the link when no browser is available.
+    }
+    if (opened) return;
+    await Clipboard.setData(ClipboardData(text: uri.toString()));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('无法直接打开浏览器，已复制链接到剪贴板')));
   }
 
   Future<void> _restoreAuth() async {
@@ -202,338 +284,6 @@ class _MePageState extends State<MePage> {
     }
   }
 
-  Future<void> _loadNotificationSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final notificationEnabled = prefs.getBool(_notificationEnabledKey) ?? false;
-    final bookingOpenEnabled = prefs.getBool(_bookingOpenEnabledKey) ?? false;
-    final normalizedBookingOpenEnabled = notificationEnabled
-        ? bookingOpenEnabled
-        : false;
-    final queueNotificationEnabled =
-        prefs.getBool(_queueNotificationEnabledKey) ?? false;
-    final normalizedQueueNotificationEnabled = notificationEnabled
-        ? queueNotificationEnabled
-        : false;
-
-    if (!mounted) return;
-    setState(() {
-      _notificationEnabled = notificationEnabled;
-      _bookingOpenEnabled = normalizedBookingOpenEnabled;
-      _queueNotificationEnabled = normalizedQueueNotificationEnabled;
-      _notificationLoading = false;
-    });
-
-    if (!notificationEnabled && bookingOpenEnabled) {
-      await prefs.setBool(_bookingOpenEnabledKey, false);
-    }
-
-    if (!notificationEnabled && queueNotificationEnabled) {
-      await prefs.setBool(_queueNotificationEnabledKey, false);
-    }
-
-    if (notificationEnabled && normalizedBookingOpenEnabled) {
-      unawaited(FcmService.setBookingOpenTopicEnabled(true));
-    }
-  }
-
-  Future<void> _saveNotificationSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_notificationEnabledKey, _notificationEnabled);
-    await prefs.setBool(_bookingOpenEnabledKey, _bookingOpenEnabled);
-    if (!_notificationEnabled) {
-      await prefs.setBool(_queueNotificationEnabledKey, false);
-      setState(() {
-        _queueNotificationEnabled = false;
-      });
-    }
-  }
-
-  Future<String?> _resolveQueueNotificationFcmToken({
-    String? fallbackToken,
-    bool allowFallback = true,
-  }) async {
-    try {
-      final currentToken = await FcmService.getCurrentToken().timeout(
-        const Duration(seconds: 5),
-      );
-      final normalizedCurrent = currentToken?.trim();
-      if (normalizedCurrent != null && normalizedCurrent.isNotEmpty) {
-        return normalizedCurrent;
-      }
-    } on TimeoutException {
-      // Fall through to the cached token if allowed.
-    } catch (_) {
-      // Fall through to the cached token if allowed.
-    }
-
-    if (!allowFallback) return null;
-
-    final normalizedFallback = fallbackToken?.trim();
-    if (normalizedFallback != null && normalizedFallback.isNotEmpty) {
-      return normalizedFallback;
-    }
-    return null;
-  }
-
-  Future<void> _loadQueueNotificationSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final cachedEnabled = prefs.getBool(_queueNotificationEnabledKey) ?? false;
-    final cachedToken = prefs.getString(_queueNotificationFcmTokenKey)?.trim();
-
-    if (!mounted) return;
-    setState(() {
-      _queueNotificationEnabled = cachedEnabled;
-      _queueNotificationLoading = false;
-    });
-
-    if (!cachedEnabled) return;
-
-    final bookingToken = await SysbookingSessionStore.loadBookingToken();
-    if (bookingToken == null) {
-      if (!mounted) return;
-      setState(() {
-        _queueNotificationEnabled = false;
-      });
-      await prefs.setBool(_queueNotificationEnabledKey, false);
-      return;
-    }
-
-    final resolvedFcmToken = await _resolveQueueNotificationFcmToken(
-      fallbackToken: cachedToken,
-      allowFallback: true,
-    );
-    if (resolvedFcmToken == null) {
-      if (!mounted) return;
-      setState(() {
-        _queueNotificationEnabled = false;
-      });
-      await prefs.setBool(_queueNotificationEnabledKey, false);
-      return;
-    }
-
-    try {
-      await SysbookingApiService.setQueueNotificationEnabled(
-        bookingToken: bookingToken,
-        fcmToken: resolvedFcmToken,
-        enabled: true,
-      );
-      await prefs.setString(_queueNotificationFcmTokenKey, resolvedFcmToken);
-      await prefs.setBool(_queueNotificationEnabledKey, true);
-    } on SysbookingUnauthorizedException {
-      await SysbookingSessionStore.clearBookingToken();
-      if (!mounted) return;
-      setState(() {
-        _queueNotificationEnabled = false;
-      });
-      await prefs.setBool(_queueNotificationEnabledKey, false);
-    } catch (_) {
-      // Keep the local state as-is on transient failures.
-    }
-  }
-
-  Future<void> _saveQueueNotificationSettings({
-    required bool enabled,
-    String? fcmToken,
-  }) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_queueNotificationEnabledKey, enabled);
-    if (fcmToken != null && fcmToken.trim().isNotEmpty) {
-      await prefs.setString(_queueNotificationFcmTokenKey, fcmToken.trim());
-    }
-  }
-
-  Future<void> _setQueueNotificationEnabled(bool enabled) async {
-    if (_queueNotificationSubmitting) return;
-    final messenger = ScaffoldMessenger.of(context);
-
-    setState(() {
-      _queueNotificationSubmitting = true;
-    });
-
-    try {
-      final bookingToken = await SysbookingSessionStore.loadBookingToken();
-      if (bookingToken == null) {
-        if (!mounted) return;
-        messenger.showSnackBar(
-          const SnackBar(content: Text('请先到排队页完成登录，再开启排队通知')),
-        );
-        return;
-      }
-
-      if (enabled) {
-        await FcmService.requestNotificationPermission();
-        final fcmToken = await _resolveQueueNotificationFcmToken(
-          allowFallback: false,
-        );
-        if (fcmToken == null) {
-          throw const SysbookingApiException('无法获取 FCM token');
-        }
-
-        await SysbookingApiService.setQueueNotificationEnabled(
-          bookingToken: bookingToken,
-          fcmToken: fcmToken,
-          enabled: true,
-        );
-        if (!mounted) return;
-        setState(() {
-          _queueNotificationEnabled = true;
-        });
-        await _saveQueueNotificationSettings(enabled: true, fcmToken: fcmToken);
-      } else {
-        final prefs = await SharedPreferences.getInstance();
-        final cachedToken = prefs.getString(_queueNotificationFcmTokenKey);
-        final fcmToken = await _resolveQueueNotificationFcmToken(
-          fallbackToken: cachedToken,
-          allowFallback: true,
-        );
-        if (fcmToken == null) {
-          throw const SysbookingApiException('无法获取 FCM token');
-        }
-
-        await SysbookingApiService.setQueueNotificationEnabled(
-          bookingToken: bookingToken,
-          fcmToken: fcmToken,
-          enabled: false,
-        );
-        if (!mounted) return;
-        setState(() {
-          _queueNotificationEnabled = false;
-        });
-        await _saveQueueNotificationSettings(
-          enabled: false,
-          fcmToken: fcmToken,
-        );
-      }
-    } on NotificationPermissionDeniedException catch (e) {
-      if (!mounted) return;
-      if (e.needsAppSettings) {
-        await openAppSettings();
-      }
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
-    } on SysbookingUnauthorizedException catch (e) {
-      await SysbookingSessionStore.clearBookingToken();
-      if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
-    } on SysbookingApiException catch (e) {
-      if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
-    } catch (e) {
-      if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _queueNotificationSubmitting = false;
-        });
-      } else {
-        _queueNotificationSubmitting = false;
-      }
-    }
-  }
-
-  Future<void> _setNotificationEnabled(bool enabled) async {
-    if (_notificationSubmitting) return;
-    final messenger = ScaffoldMessenger.of(context);
-
-    setState(() {
-      _notificationSubmitting = true;
-    });
-
-    try {
-      if (enabled) {
-        try {
-          await FcmService.requestNotificationPermission();
-          if (!mounted) return;
-          setState(() {
-            _notificationEnabled = true;
-          });
-          await _saveNotificationSettings();
-          if (_bookingOpenEnabled) {
-            try {
-              await FcmService.setBookingOpenTopicEnabled(true);
-            } catch (e) {
-              if (!mounted) return;
-              setState(() {
-                _bookingOpenEnabled = false;
-              });
-              await _saveNotificationSettings();
-              messenger.showSnackBar(SnackBar(content: Text(e.toString())));
-            }
-          }
-        } on NotificationPermissionDeniedException catch (e) {
-          if (!mounted) return;
-          if (e.needsAppSettings) {
-            await openAppSettings();
-          }
-          setState(() {
-            _notificationEnabled = false;
-            _bookingOpenEnabled = false;
-            _queueNotificationEnabled = false;
-          });
-          await _saveNotificationSettings();
-          await FcmService.setBookingOpenTopicEnabled(false);
-          messenger.showSnackBar(SnackBar(content: Text(e.toString())));
-        }
-      } else {
-        try {
-          await FcmService.setBookingOpenTopicEnabled(false);
-          if (!mounted) return;
-          setState(() {
-            _notificationEnabled = false;
-            _bookingOpenEnabled = false;
-            _queueNotificationEnabled = false;
-          });
-          await _saveNotificationSettings();
-        } catch (e) {
-          if (!mounted) return;
-          messenger.showSnackBar(SnackBar(content: Text(e.toString())));
-        }
-      }
-    } catch (e) {
-      if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _notificationSubmitting = false;
-        });
-      } else {
-        _notificationSubmitting = false;
-      }
-    }
-  }
-
-  Future<void> _setBookingOpenEnabled(bool enabled) async {
-    if (_notificationSubmitting || !_notificationEnabled) return;
-    final messenger = ScaffoldMessenger.of(context);
-
-    setState(() {
-      _notificationSubmitting = true;
-    });
-
-    try {
-      setState(() {
-        _bookingOpenEnabled = enabled;
-      });
-      await FcmService.setBookingOpenTopicEnabled(enabled);
-      await _saveNotificationSettings();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _bookingOpenEnabled = !enabled;
-      });
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _notificationSubmitting = false;
-        });
-      } else {
-        _notificationSubmitting = false;
-      }
-    }
-  }
-
   Future<void> _loadAnnouncement() async {
     try {
       final cached = await MaidCatalogCacheService.loadCachedSnapshot();
@@ -579,7 +329,7 @@ class _MePageState extends State<MePage> {
   }
 
   Future<void> _showLoginDialog() async {
-    _emailController.text = _email ?? '';
+    if (_isLoggedIn) _emailController.text = _email ?? '';
     _passwordController.clear();
 
     await showDialog<void>(
@@ -654,12 +404,14 @@ class _MePageState extends State<MePage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
+                    key: const Key('login-email'),
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(labelText: '邮箱'),
                   ),
                   const SizedBox(height: 12),
                   TextField(
+                    key: const Key('login-password'),
                     controller: _passwordController,
                     obscureText: true,
                     decoration: const InputDecoration(labelText: '密码'),
@@ -692,6 +444,143 @@ class _MePageState extends State<MePage> {
     );
   }
 
+  Future<void> _showRegisterDialog() async {
+    _registerUsernameController.clear();
+    _registerEmailController.text = _emailController.text.trim();
+    _registerPasswordController.clear();
+    _registerConfirmController.clear();
+    var submitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submit() async {
+              if (submitting) return;
+              final username = _registerUsernameController.text.trim();
+              final email = _registerEmailController.text.trim();
+              final password = _registerPasswordController.text;
+              if (username.isEmpty || email.isEmpty || password.isEmpty) {
+                _showMessage('请输入用户名、邮箱和密码');
+                return;
+              }
+              if (password.length < 6) {
+                _showMessage('密码至少 6 位');
+                return;
+              }
+              if (password != _registerConfirmController.text) {
+                _showMessage('两次输入的密码不一致');
+                return;
+              }
+              setDialogState(() => submitting = true);
+              try {
+                final response = await SupabaseService.client.auth.signUp(
+                  email: email,
+                  password: password,
+                  data: {'username': username},
+                );
+                if (response.user == null) {
+                  throw const AuthException('注册失败，未获取到用户信息');
+                }
+                if (!dialogContext.mounted || !mounted) return;
+                setDialogState(() => submitting = false);
+                Navigator.of(dialogContext).pop();
+                // 回填邮箱，方便确认邮件后直接登录。
+                _emailController.text = email;
+                if (response.session != null) {
+                  _applySession(response.session);
+                  _showMessage('注册成功');
+                } else {
+                  _showMessage('注册成功，请到邮箱点击确认链接后再登录');
+                }
+              } catch (error) {
+                _showMessage(_signUpErrorMessage(error));
+              } finally {
+                if (dialogContext.mounted) {
+                  setDialogState(() => submitting = false);
+                }
+              }
+            }
+
+            return PopScope(
+              canPop: !submitting,
+              child: AlertDialog(
+                title: const Text('注册'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        key: const Key('register-username'),
+                        controller: _registerUsernameController,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(labelText: 'VRC用户名'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const Key('register-email'),
+                        controller: _registerEmailController,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(labelText: '邮箱'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const Key('register-password'),
+                        controller: _registerPasswordController,
+                        obscureText: true,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: '密码',
+                          helperText: '至少 6 位',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const Key('register-confirm-password'),
+                        controller: _registerConfirmController,
+                        obscureText: true,
+                        decoration: const InputDecoration(labelText: '确认密码'),
+                        onSubmitted: (_) => submit(),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: submitting
+                        ? null
+                        : () => Navigator.of(context).pop(),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    key: const Key('register-submit-button'),
+                    onPressed: submitting ? null : submit,
+                    child: submitting
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('注册'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -720,8 +609,6 @@ class _MePageState extends State<MePage> {
         const SizedBox(height: 12),
         _buildNoticeSection(),
         const SizedBox(height: 12),
-        _buildNotificationSection(),
-        const SizedBox(height: 12),
         _buildQueueSection(),
         const SizedBox(height: 12),
         _buildMetaSection(),
@@ -740,25 +627,37 @@ class _MePageState extends State<MePage> {
     final avatarFg = isDark ? const Color(0xFFFF8BC8) : const Color(0xFFFF5DAF);
 
     if (!_isLoggedIn) {
-      return Container(
-        decoration: BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.circular(20),
-        ),
+      return Material(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
             const ListTile(
               leading: Icon(Icons.account_circle_outlined),
               title: Text('账号', style: TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text('登录或注册后管理您的个人资料'),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _showLoginDialog,
-                  child: const Text('登录'),
-                ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      key: const Key('open-register-button'),
+                      onPressed: _showRegisterDialog,
+                      child: const Text('注册'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      key: const Key('open-login-button'),
+                      onPressed: _showLoginDialog,
+                      child: const Text('登录'),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -766,11 +665,10 @@ class _MePageState extends State<MePage> {
       );
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(20),
-      ),
+    return Material(
+      color: cardBg,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           ListTile(
@@ -819,11 +717,10 @@ class _MePageState extends State<MePage> {
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
     final text = (_announcement ?? '').trim();
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(20),
-      ),
+    return Material(
+      color: cardBg,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
       child: ListTile(
         leading: const Icon(Icons.campaign_outlined),
         title: Text(
@@ -846,11 +743,10 @@ class _MePageState extends State<MePage> {
         : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(20),
-      ),
+    return Material(
+      color: cardBg,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -860,7 +756,24 @@ class _MePageState extends State<MePage> {
               '版本号',
               style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
             ),
-            subtitle: Text(_appVersion, style: TextStyle(color: subColor)),
+            subtitle: Text(
+              _latestVersion == null
+                  ? _appVersion
+                  : '$_appVersion · 有新版本 $_latestVersion',
+              style: TextStyle(color: subColor),
+            ),
+            trailing: _supportsUpdateCheck
+                ? TextButton(
+                    key: const Key('check-update-button'),
+                    onPressed: _checkingUpdate ? null : _checkForUpdate,
+                    child: _checkingUpdate
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('检查更新'),
+                  )
+                : null,
           ),
           ListTile(
             leading: const Icon(Icons.badge_outlined),
@@ -938,90 +851,6 @@ class _MePageState extends State<MePage> {
     );
   }
 
-  Widget _buildNotificationSection() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark
-        ? const Color(0xFFF1EAF8)
-        : const Color(0xFF3A3250);
-    final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.notifications_none_rounded),
-            title: Text(
-              '通知设置',
-              style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
-            ),
-            subtitle: Text(
-              '为了在应用关闭时仍然能接收到消息，请开启自启动权限',
-              style: TextStyle(color: subColor),
-            ),
-          ),
-          if (_notificationLoading)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 16),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else ...[
-            SwitchListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-              title: const Text('通知总开关'),
-              subtitle: Text('开启后可接收系统通知', style: TextStyle(color: subColor)),
-              value: _notificationEnabled,
-              onChanged: _notificationSubmitting
-                  ? null
-                  : _setNotificationEnabled,
-            ),
-            SwitchListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-              title: const Text('订阅预约开始提示'),
-              subtitle: Text(
-                _notificationEnabled ? '订阅 booking_open topic' : '请先打开总开关',
-                style: TextStyle(color: subColor),
-              ),
-              value: _bookingOpenEnabled,
-              onChanged: (!_notificationEnabled || _notificationSubmitting)
-                  ? null
-                  : _setBookingOpenEnabled,
-            ),
-            if (QueueTabSettings.enabledNotifier.value)
-              SwitchListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                title: const Text('排队通知'),
-                subtitle: Text(
-                  _queueNotificationLoading
-                      ? '正在恢复排队通知状态'
-                      : !_notificationEnabled
-                      ? '请先打开通知总开关'
-                      : _queueNotificationEnabled
-                      ? '已同步排队相关通知'
-                      : '开启后会先发送当前设备的 FCM token',
-                  style: TextStyle(color: subColor),
-                ),
-                value: _queueNotificationEnabled,
-                onChanged:
-                    (_queueNotificationLoading ||
-                        _queueNotificationSubmitting ||
-                        !_notificationEnabled)
-                    ? null
-                    : (enabled) =>
-                          unawaited(_setQueueNotificationEnabled(enabled)),
-              ),
-            const SizedBox(height: 8),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _buildQueueSection() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
@@ -1030,11 +859,10 @@ class _MePageState extends State<MePage> {
         : const Color(0xFF3A3250);
     final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(20),
-      ),
+    return Material(
+      color: cardBg,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1051,13 +879,41 @@ class _MePageState extends State<MePage> {
               style: TextStyle(color: subColor),
             ),
             value: QueueTabSettings.enabledNotifier.value,
-            onChanged: _notificationSubmitting
-                ? null
-                : (enabled) => unawaited(QueueTabSettings.setEnabled(enabled)),
+            onChanged: (enabled) =>
+                unawaited(QueueTabSettings.setEnabled(enabled)),
           ),
           const SizedBox(height: 8),
         ],
       ),
     );
   }
+}
+
+String _signUpErrorMessage(Object error) {
+  if (error is! AuthException) {
+    return error.toString();
+  }
+  final message = error.message.toLowerCase();
+  if (message.contains('already registered')) {
+    return '该邮箱已注册，请直接登录';
+  }
+  if (message.contains('at least 6 characters')) {
+    return '密码至少 6 位';
+  }
+  if (message.contains('weak') || message.contains('easy to guess')) {
+    return '密码强度不足，请换一个更复杂的密码';
+  }
+  if (message.contains('validate email') ||
+      message.contains('invalid format')) {
+    return '邮箱格式不正确';
+  }
+  if (message.contains('rate limit') ||
+      message.contains('only request this after')) {
+    return '操作太频繁，请稍后再试';
+  }
+  if (message.contains('signups not allowed') ||
+      message.contains('signup is disabled')) {
+    return '当前未开放注册';
+  }
+  return error.message;
 }

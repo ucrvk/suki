@@ -1,4 +1,6 @@
-﻿import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
+import '../services/backend_request_headers.dart';
 import 'package:flutter/material.dart';
 
 enum MaidStatus { available, full, closed }
@@ -57,6 +59,10 @@ class MaidCard extends StatelessWidget {
                   )
                 : CachedNetworkImage(
                     imageUrl: image,
+                    httpHeaders: BackendRequestHeaders.forUrl(image),
+                    imageRenderMethodForWeb: BackendRequestHeaders.isBackendUrl(image)
+                        ? ImageRenderMethodForWeb.HttpGet
+                        : ImageRenderMethodForWeb.HtmlImage,
                     width: double.infinity,
                     fit: BoxFit.cover,
                     placeholder: (context, url) => const ColoredBox(

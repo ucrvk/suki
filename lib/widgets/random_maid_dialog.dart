@@ -1,3 +1,5 @@
+import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
+import '../services/backend_request_headers.dart';
 import 'dart:math';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -115,6 +117,11 @@ class _RandomMaidDialogState extends State<_RandomMaidDialog>
                               ),
                             )
                           : CachedNetworkImage(
+                              httpHeaders: BackendRequestHeaders.forUrl(image),
+                              imageRenderMethodForWeb:
+                                  BackendRequestHeaders.isBackendUrl(image)
+                                  ? ImageRenderMethodForWeb.HttpGet
+                                  : ImageRenderMethodForWeb.HtmlImage,
                               imageUrl: image,
                               fit: BoxFit.cover,
                               width: double.infinity,

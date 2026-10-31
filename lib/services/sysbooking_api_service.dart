@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_log_service.dart';
-import 'fcm_service.dart';
+import 'backend_request_headers.dart';
 import 'supabase_service.dart';
 
 class SysbookingQueueItem {
@@ -62,10 +62,7 @@ class SysbookingUnauthorizedException extends SysbookingApiException {
 class SysbookingApiService {
   SysbookingApiService._();
 
-  static const String _baseUrl = String.fromEnvironment(
-    'SYSBOOKING_BASE_URL',
-    defaultValue: 'https://api.wenwen12305.top/suki',
-  );
+  static const String _baseUrl = BackendRequestHeaders.baseUrl;
 
   static Uri _resolve(String path) {
     final base = Uri.parse(_baseUrl.trim());
@@ -77,10 +74,14 @@ class SysbookingApiService {
     return normalizedBase.resolve(relativePath);
   }
 
-  static Map<String, String> _jsonHeaders([Map<String, String>? extra]) {
+  static Future<Map<String, String>> _jsonHeaders([
+    Map<String, String>? extra,
+  ]) async {
+    await BackendRequestHeaders.initialize();
     return {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      ...BackendRequestHeaders.forUrl(_baseUrl),
       ...?extra,
     };
   }
@@ -88,7 +89,6 @@ class SysbookingApiService {
   static Future<String> loginAndGetBookingToken({
     required String email,
     required String password,
-    String? fcmToken,
   }) async {
     try {
       final authResponse = await SupabaseService.client.auth.signInWithPassword(
@@ -107,10 +107,7 @@ class SysbookingApiService {
       if (session == null) {
         throw const SysbookingApiException('登录失败，未获取到有效会话');
       }
-      return exchangeSessionForBookingToken(
-        session: session,
-        fcmToken: fcmToken,
-      );
+      return await exchangeSessionForBookingToken(session: session);
     } catch (error) {
       if (error is! SysbookingApiException) {
         await AuthLogService.record(
@@ -129,7 +126,6 @@ class SysbookingApiService {
 
   static Future<String> exchangeSessionForBookingToken({
     required Session session,
-    String? fcmToken,
   }) async {
     final refreshToken = session.refreshToken?.trim() ?? '';
     final userId = session.user.id.trim();
@@ -137,18 +133,14 @@ class SysbookingApiService {
       throw const SysbookingApiException('登录失败，未获取到有效会话');
     }
 
-    final resolvedFcmToken = await _resolveFcmToken(fcmToken);
     final body = <String, dynamic>{
       'user_id': userId,
       'sb_refreshtoken': refreshToken,
     };
-    if (resolvedFcmToken != null) {
-      body['fcm_token'] = resolvedFcmToken;
-    }
 
     final response = await http.post(
       _resolve('/sysbooking/login'),
-      headers: _jsonHeaders(),
+      headers: await _jsonHeaders(),
       body: jsonEncode(body),
     );
 
@@ -171,34 +163,12 @@ class SysbookingApiService {
     return token;
   }
 
-  static Future<String?> _resolveFcmToken(String? provided) async {
-    final normalizedProvided = provided?.trim();
-    if (normalizedProvided != null && normalizedProvided.isNotEmpty) {
-      return normalizedProvided;
-    }
-
-    try {
-      final currentToken = await FcmService.getCurrentToken().timeout(
-        const Duration(seconds: 2),
-      );
-      final normalizedCurrent = currentToken?.trim();
-      if (normalizedCurrent == null || normalizedCurrent.isEmpty) {
-        return null;
-      }
-      return normalizedCurrent;
-    } on TimeoutException {
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
   static Future<List<SysbookingQueueItem>> fetchQueueList(
     String bookingToken,
   ) async {
     final response = await http.get(
       _resolve('/sysbooking/queuelist'),
-      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
     );
 
     if (response.statusCode == 401) {
@@ -265,7 +235,7 @@ class SysbookingApiService {
 
     final response = await http.put(
       _resolve('/sysbooking/booking'),
-      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
       body: jsonEncode(payload),
     );
 
@@ -288,7 +258,7 @@ class SysbookingApiService {
   }) async {
     final response = await http.get(
       _resolve('/sysbooking/logout'),
-      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
     );
 
     if (response.statusCode == 401) {
@@ -311,7 +281,7 @@ class SysbookingApiService {
   }) async {
     final response = await http.delete(
       _resolve('/sysbooking/booking'),
-      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
       body: jsonEncode({'booking_id': bookingId.trim()}),
     );
 
@@ -329,39 +299,6 @@ class SysbookingApiService {
     }
   }
 
-  static Future<void> setQueueNotificationEnabled({
-    required String bookingToken,
-    required String fcmToken,
-    required bool enabled,
-  }) async {
-    final normalizedFcmToken = fcmToken.trim();
-    if (normalizedFcmToken.isEmpty) {
-      throw const SysbookingApiException('无法获取 FCM token');
-    }
-
-    final response = await http.put(
-      _resolve('/sysbooking/notification'),
-      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
-      body: jsonEncode({
-        'fcm_token': normalizedFcmToken,
-        'notification': enabled,
-      }),
-    );
-
-    if (response.statusCode == 401) {
-      throw SysbookingUnauthorizedException(
-        _extractError(response.body, fallback: '登录已失效，请重新登录'),
-        statusCode: response.statusCode,
-      );
-    }
-    if (response.statusCode != 200 && response.statusCode != 204) {
-      throw SysbookingApiException(
-        _extractError(response.body, fallback: '更新排队通知失败'),
-        statusCode: response.statusCode,
-      );
-    }
-  }
-
   static Future<String> createQueueBooking({
     required String bookingToken,
     required String maidId,
@@ -372,7 +309,7 @@ class SysbookingApiService {
   }) async {
     final response = await http.post(
       _resolve('/sysbooking/booking'),
-      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
       body: jsonEncode({
         'maid_id': maidId.trim(),
         'timeslot': timeslot,
