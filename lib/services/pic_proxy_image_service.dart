@@ -1,10 +1,10 @@
-import 'backend_request_headers.dart';
+import 'backend_config.dart';
 
 class PicProxyImageService {
   PicProxyImageService._();
 
   static String get _proxyBaseUrl =>
-      '${BackendRequestHeaders.normalizedBaseUrl}/pic-proxy/';
+      '${BackendConfig.normalizedBaseUrl}/pic-proxy/';
 
   static bool supportsProxy(String imageUrl) {
     final uri = Uri.tryParse(imageUrl.trim());

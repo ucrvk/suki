@@ -1,6 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
-import '../services/backend_request_headers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -417,11 +416,10 @@ class ReviewsPageState extends State<ReviewsPage> {
                         child: Icon(Icons.image_not_supported_outlined, color: Color(0xFF8B8399)),
                       )
                     : CachedNetworkImage(
+                        // TODO(web): 与 v3 一致，使用字节解码临时规避图片重绘黑块。
+                        // Flutter 包含 flutter/flutter#192516 的修复后可移除。
+                        imageRenderMethodForWeb: ImageRenderMethodForWeb.HttpGet,
                         imageUrl: group.maidImage,
-                        httpHeaders: BackendRequestHeaders.forUrl(group.maidImage),
-                        imageRenderMethodForWeb: BackendRequestHeaders.isBackendUrl(group.maidImage)
-                            ? ImageRenderMethodForWeb.HttpGet
-                            : ImageRenderMethodForWeb.HtmlImage,
                         fit: BoxFit.cover,
                         width: double.infinity,
                         placeholder: (context, url) => const Center(

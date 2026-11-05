@@ -4,12 +4,12 @@ import 'dart:developer' as dev;
 import 'package:http/http.dart' as http;
 
 import 'maid_content_cache_store.dart';
-import 'backend_request_headers.dart';
+import 'backend_config.dart';
 
 class MaidImageManifestService {
   MaidImageManifestService._();
 
-  static String get baseUrl => '${BackendRequestHeaders.normalizedBaseUrl}/';
+  static String get baseUrl => '${BackendConfig.normalizedBaseUrl}/';
   static const String _manifestPath = 'manifest.json';
   static const String _imagesPath = 'images';
   static const String _cacheKey = 'maid_image_manifest';
@@ -51,11 +51,7 @@ class MaidImageManifestService {
 
     final manifestUri = Uri.parse('$baseUrl$_manifestPath');
     try {
-      await BackendRequestHeaders.initialize();
-      final response = await http.get(
-        manifestUri,
-        headers: BackendRequestHeaders.forUrl(manifestUri.toString()),
-      );
+      final response = await http.get(manifestUri);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw Exception('HTTP ${response.statusCode}');
       }

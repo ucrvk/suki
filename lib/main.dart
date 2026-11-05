@@ -2,14 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_shell.dart';
-import 'services/backend_request_headers.dart';
 import 'services/maid_content_cache_store.dart';
 import 'services/queue_tab_settings.dart';
 import 'services/supabase_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await BackendRequestHeaders.initialize();
   final userAgent = await SupabaseService.buildUserAgent();
   await Supabase.initialize(
     url: SupabaseService.supabaseUrl,

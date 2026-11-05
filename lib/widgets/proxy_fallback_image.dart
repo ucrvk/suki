@@ -1,6 +1,5 @@
-import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
-import '../services/backend_request_headers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
 import 'package:flutter/material.dart';
 
 import '../services/pic_proxy_image_service.dart';
@@ -66,10 +65,9 @@ class _ProxyFallbackImageState extends State<ProxyFallbackImage> {
   @override
   Widget build(BuildContext context) {
     return CachedNetworkImage(
-      httpHeaders: BackendRequestHeaders.forUrl(_activeUrl),
-      imageRenderMethodForWeb: BackendRequestHeaders.isBackendUrl(_activeUrl)
-          ? ImageRenderMethodForWeb.HttpGet
-          : ImageRenderMethodForWeb.HtmlImage,
+      // TODO(web): 与 v3 一致，使用字节解码临时规避图片重绘黑块。
+      // Flutter 包含 flutter/flutter#192516 的修复后可移除。
+      imageRenderMethodForWeb: ImageRenderMethodForWeb.HttpGet,
       imageUrl: _activeUrl,
       fit: widget.fit,
       alignment: widget.alignment,

@@ -1,8 +1,7 @@
-import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
-import '../services/backend_request_headers.dart';
 import 'dart:math';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
 import 'package:flutter/material.dart';
 
 /// 弹出一个对话框，随机展示一位女仆的头像、昵称、介绍和标签，
@@ -117,11 +116,9 @@ class _RandomMaidDialogState extends State<_RandomMaidDialog>
                               ),
                             )
                           : CachedNetworkImage(
-                              httpHeaders: BackendRequestHeaders.forUrl(image),
-                              imageRenderMethodForWeb:
-                                  BackendRequestHeaders.isBackendUrl(image)
-                                  ? ImageRenderMethodForWeb.HttpGet
-                                  : ImageRenderMethodForWeb.HtmlImage,
+                              // TODO(web): 与 v3 一致，使用字节解码临时规避图片重绘黑块。
+                              // Flutter 包含 flutter/flutter#192516 的修复后可移除。
+                              imageRenderMethodForWeb: ImageRenderMethodForWeb.HttpGet,
                               imageUrl: image,
                               fit: BoxFit.cover,
                               width: double.infinity,

@@ -1,6 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
-import '../services/backend_request_headers.dart';
 import 'package:flutter/material.dart';
 
 enum MaidStatus { available, full, closed }
@@ -58,11 +57,10 @@ class MaidCard extends StatelessWidget {
                     child: Center(child: Icon(Icons.image_not_supported_outlined)),
                   )
                 : CachedNetworkImage(
+                    // TODO(web): 与 v3 一致，使用字节解码临时规避图片重绘黑块。
+                    // Flutter 包含 flutter/flutter#192516 的修复后可移除。
+                    imageRenderMethodForWeb: ImageRenderMethodForWeb.HttpGet,
                     imageUrl: image,
-                    httpHeaders: BackendRequestHeaders.forUrl(image),
-                    imageRenderMethodForWeb: BackendRequestHeaders.isBackendUrl(image)
-                        ? ImageRenderMethodForWeb.HttpGet
-                        : ImageRenderMethodForWeb.HtmlImage,
                     width: double.infinity,
                     fit: BoxFit.cover,
                     placeholder: (context, url) => const ColoredBox(

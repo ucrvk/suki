@@ -5,50 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:suki/services/backend_request_headers.dart';
+import 'package:suki/services/backend_config.dart';
 import 'package:suki/services/maid_image_manifest_service.dart';
 import 'package:suki/services/sysbooking_api_service.dart';
 import 'package:suki/widgets/proxy_fallback_image.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(() async {
-    PackageInfo.setMockInitialValues(
-      appName: 'suki',
-      packageName: 'test.suki',
-      version: '2.0.3',
-      buildNumber: '1',
-      buildSignature: '',
-    );
-    await BackendRequestHeaders.initialize();
-  });
-
-  test('only adds the version header to the backend origin and path', () {
-    for (final url in [
-      '${BackendRequestHeaders.baseUrl}/manifest.json',
-      '${BackendRequestHeaders.baseUrl}/images/test.avif',
-      '${BackendRequestHeaders.baseUrl}/pic-proxy/https%3A%2F%2Fexample.com',
-    ]) {
-      expect(BackendRequestHeaders.forUrl(url), {
-        'x-suki-app-version': '2.0.3+1',
-      });
-    }
-    for (final url in [
-      'https://uzlzkjuijruqanetagxh.supabase.co/auth/v1/signup',
-      'https://uzlzkjuijruqanetagxh.supabase.co/storage/v1/object/public/image.png',
-      'https://api.github.com/repos/ucrvk/suki/tags',
-      'https://api.wenwen12305.top/suki-evil/images/a.png',
-      'https://api.wenwen12305.top.evil/suki/images/a.png',
-      'http://api.wenwen12305.top/suki/images/a.png',
-    ]) {
-      expect(BackendRequestHeaders.forUrl(url), isEmpty, reason: url);
-    }
-  });
-
   test(
-    'all booking request methods send the app version with existing auth headers',
+    'booking requests preserve authentication without a version header',
     () async {
       final seen = <String>[];
       await http.runWithClient(
@@ -92,7 +58,7 @@ void main() {
           );
         },
         () => MockClient((request) async {
-          expect(request.headers['x-suki-app-version'], '2.0.3+1');
+          expect(request.headers.containsKey('x-suki-app-version'), isFalse);
           if (!request.url.path.endsWith('/login')) {
             expect(request.headers['x-booking-token'], 'booking');
           }
@@ -110,7 +76,7 @@ void main() {
     },
   );
 
-  test('manifest requests carry the version header', () async {
+  test('manifest requests do not send a version header', () async {
     await http.runWithClient(
       () async {
         final manifest = await MaidImageManifestService.fetchManifest(
@@ -119,19 +85,19 @@ void main() {
         expect(manifest['maid'], 'hash');
       },
       () => MockClient((request) async {
-        expect(request.headers['x-suki-app-version'], '2.0.3+1');
+        expect(request.headers.containsKey('x-suki-app-version'), isFalse);
         return http.Response('{"maid":"hash"}', 200);
       }),
     );
   });
 
-  testWidgets('backend images carry the app version header', (
+  testWidgets('backend images do not send a version header', (
     tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: ProxyFallbackImage(
-          imageUrl: '${BackendRequestHeaders.baseUrl}/images/test.avif',
+          imageUrl: '${BackendConfig.baseUrl}/images/test.avif',
           placeholder: (_, _) => const SizedBox(),
           errorWidget: (_, _, _) => const SizedBox(),
         ),
@@ -140,7 +106,7 @@ void main() {
     final image = tester.widget<CachedNetworkImage>(
       find.byType(CachedNetworkImage),
     );
-    expect(image.httpHeaders, {'x-suki-app-version': '2.0.3+1'});
+    expect(image.httpHeaders, isNull);
     await tester.pumpWidget(const SizedBox());
   });
 }

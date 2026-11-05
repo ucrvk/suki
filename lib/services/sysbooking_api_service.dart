@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_log_service.dart';
-import 'backend_request_headers.dart';
+import 'backend_config.dart';
 import 'supabase_service.dart';
 
 class SysbookingQueueItem {
@@ -62,7 +62,7 @@ class SysbookingUnauthorizedException extends SysbookingApiException {
 class SysbookingApiService {
   SysbookingApiService._();
 
-  static const String _baseUrl = BackendRequestHeaders.baseUrl;
+  static const String _baseUrl = BackendConfig.baseUrl;
 
   static Uri _resolve(String path) {
     final base = Uri.parse(_baseUrl.trim());
@@ -74,14 +74,12 @@ class SysbookingApiService {
     return normalizedBase.resolve(relativePath);
   }
 
-  static Future<Map<String, String>> _jsonHeaders([
+  static Map<String, String> _jsonHeaders([
     Map<String, String>? extra,
-  ]) async {
-    await BackendRequestHeaders.initialize();
+  ]) {
     return {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      ...BackendRequestHeaders.forUrl(_baseUrl),
       ...?extra,
     };
   }
@@ -140,7 +138,7 @@ class SysbookingApiService {
 
     final response = await http.post(
       _resolve('/sysbooking/login'),
-      headers: await _jsonHeaders(),
+      headers: _jsonHeaders(),
       body: jsonEncode(body),
     );
 
@@ -168,7 +166,7 @@ class SysbookingApiService {
   ) async {
     final response = await http.get(
       _resolve('/sysbooking/queuelist'),
-      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
     );
 
     if (response.statusCode == 401) {
@@ -235,7 +233,7 @@ class SysbookingApiService {
 
     final response = await http.put(
       _resolve('/sysbooking/booking'),
-      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
       body: jsonEncode(payload),
     );
 
@@ -258,7 +256,7 @@ class SysbookingApiService {
   }) async {
     final response = await http.get(
       _resolve('/sysbooking/logout'),
-      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
     );
 
     if (response.statusCode == 401) {
@@ -281,7 +279,7 @@ class SysbookingApiService {
   }) async {
     final response = await http.delete(
       _resolve('/sysbooking/booking'),
-      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
       body: jsonEncode({'booking_id': bookingId.trim()}),
     );
 
@@ -309,7 +307,7 @@ class SysbookingApiService {
   }) async {
     final response = await http.post(
       _resolve('/sysbooking/booking'),
-      headers: await _jsonHeaders({'x-booking-token': bookingToken.trim()}),
+      headers: _jsonHeaders({'x-booking-token': bookingToken.trim()}),
       body: jsonEncode({
         'maid_id': maidId.trim(),
         'timeslot': timeslot,
