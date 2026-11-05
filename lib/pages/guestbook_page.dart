@@ -389,7 +389,22 @@ class GuestbookPageState extends State<GuestbookPage> {
 
   Widget _buildBody() {
     if (_error != null && _entries.isEmpty) {
-      return _buildErrorWidget();
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('请求失败: $_error', textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: () => _loadEntries(forceRefresh: true),
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     if (_entries.isEmpty && !_isLoading) {
@@ -623,47 +638,6 @@ class GuestbookPageState extends State<GuestbookPage> {
           style: OutlinedButton.styleFrom(
             foregroundColor: Theme.of(context).colorScheme.primary,
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildErrorWidget() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '加载失败',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _error ?? '未知错误',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.tonal(
-              onPressed: () => _loadEntries(forceRefresh: true),
-              child: const Text('重试'),
-            ),
-          ],
         ),
       ),
     );
