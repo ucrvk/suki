@@ -1,8 +1,8 @@
 import 'dart:math';
 
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
 import 'package:flutter/material.dart';
+
+import 'timed_cached_network_image.dart';
 
 /// 弹出一个对话框，随机展示一位女仆的头像、昵称、介绍和标签，
 /// 用户可以点击「再来一个」按钮继续随机。
@@ -115,10 +115,7 @@ class _RandomMaidDialogState extends State<_RandomMaidDialog>
                                 ),
                               ),
                             )
-                          : CachedNetworkImage(
-                              // TODO(web): 与 v3 一致，使用字节解码临时规避图片重绘黑块。
-                              // Flutter 包含 flutter/flutter#192516 的修复后可移除。
-                              imageRenderMethodForWeb: ImageRenderMethodForWeb.HttpGet,
+                          : TimedCachedNetworkImage(
                               imageUrl: image,
                               fit: BoxFit.cover,
                               width: double.infinity,

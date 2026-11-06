@@ -86,7 +86,7 @@ class MaidCatalogCacheService {
 
     final rows = await SupabaseService.client
         .from('suki_booking')
-        .select('*')
+        .select('maids,reservations,time_slots,booking_enabled,announcement')
         .limit(1);
     if (rows.isEmpty) {
       throw Exception('返回数据为空');

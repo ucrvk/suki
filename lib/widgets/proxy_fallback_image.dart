@@ -1,8 +1,7 @@
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cached_network_image_platform_interface/cached_network_image_platform_interface.dart';
 import 'package:flutter/material.dart';
 
 import '../services/pic_proxy_image_service.dart';
+import 'timed_cached_network_image.dart';
 
 class ProxyFallbackImage extends StatefulWidget {
   const ProxyFallbackImage({
@@ -64,10 +63,7 @@ class _ProxyFallbackImageState extends State<ProxyFallbackImage> {
 
   @override
   Widget build(BuildContext context) {
-    return CachedNetworkImage(
-      // TODO(web): 与 v3 一致，使用字节解码临时规避图片重绘黑块。
-      // Flutter 包含 flutter/flutter#192516 的修复后可移除。
-      imageRenderMethodForWeb: ImageRenderMethodForWeb.HttpGet,
+    return TimedCachedNetworkImage(
       imageUrl: _activeUrl,
       fit: widget.fit,
       alignment: widget.alignment,
@@ -79,7 +75,9 @@ class _ProxyFallbackImageState extends State<ProxyFallbackImage> {
             !_triedProxy && _proxyUrl != null && _activeUrl == widget.imageUrl;
         if (shouldRetryWithProxy) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _switchToProxy();
+            if (mounted && _activeUrl == url && widget.imageUrl == url) {
+              _switchToProxy();
+            }
           });
           return widget.placeholder(context, url);
         }
