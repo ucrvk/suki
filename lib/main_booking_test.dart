@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_shell.dart';
+import 'app_theme.dart';
 import 'services/supabase_service.dart';
 
 Future<void> main() async {
@@ -25,12 +26,7 @@ class BookingTestApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        scaffoldBackgroundColor: const Color(0xFFF3EFF5),
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF5DAF)),
-        useMaterial3: true,
-        fontFamily: 'IceMoon',
-      ),
+      theme: buildAppTheme(Brightness.light),
       home: const AppShell(forceAllBookableForTest: true),
     );
   }

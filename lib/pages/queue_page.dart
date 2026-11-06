@@ -10,6 +10,7 @@ import '../services/sysbooking_api_service.dart';
 import '../services/sysbooking_session_store.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
+import '../widgets/responsive_shell.dart';
 
 class QueuePage extends StatefulWidget {
   const QueuePage({super.key});
@@ -1031,18 +1032,20 @@ class _QueuePageState extends State<QueuePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: MainAppBar(
-        title: const Text('排队'),
-        actions: [
-          IconButton(
-            onPressed: _loading
-                ? null
-                : () => unawaited(_maybeBootstrap(forceRefresh: true)),
-            icon: const Icon(Icons.refresh),
-            tooltip: '刷新',
-          ),
-        ],
-      ),
+      appBar: ShellScope.isWide(context)
+          ? null
+          : MainAppBar(
+              title: const Text('排队'),
+              actions: [
+                IconButton(
+                  onPressed: _loading
+                      ? null
+                      : () => unawaited(_maybeBootstrap(forceRefresh: true)),
+                  icon: const Icon(Icons.refresh),
+                  tooltip: '刷新',
+                ),
+              ],
+            ),
       body: RefreshIndicator(
         onRefresh: () => _maybeBootstrap(forceRefresh: true),
         child: ListView(

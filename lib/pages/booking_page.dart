@@ -12,6 +12,7 @@ import '../utils/time_slot_availability.dart';
 import '../widgets/main_app_bar.dart';
 import '../widgets/maid_card.dart';
 import '../widgets/random_maid_dialog.dart';
+import '../widgets/responsive_shell.dart';
 
 class MaidViewData {
   const MaidViewData({
@@ -50,6 +51,8 @@ class _BookingPageState extends State<BookingPage> {
   Set<String> _favoriteIds = <String>{};
   final Set<String> _favoriteSubmittingIds = <String>{};
   final Set<String> _submittingKeys = <String>{};
+  bool _randomPoolPrimed = false;
+  bool _randomPreparing = false;
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   User? _currentUser;
@@ -378,6 +381,80 @@ class _BookingPageState extends State<BookingPage> {
     return _submittingKeys.any((key) => key.startsWith('$uniqueId|'));
   }
 
+  /// 随机池：营业中、且当前用户仍有时段可约的女仆。
+  List<MaidViewData> _buildRandomPool() {
+    final myBookedSlots = _bookedSlotsByUserId(_currentUser?.id ?? '');
+    return _buildSortedMaids()
+        .where((item) => item.status == MaidStatus.available)
+        .where((item) {
+          final maidVrcid = (item.maid['vrcid'] ?? '').toString().trim();
+          return availableTimeSlotsForUser(
+            timeSlots: _timeSlots,
+            disabledTimeSlots: _disabledTimeSlotsFor(item.maid),
+            bookedSlotKeys: _bookedSlotKeys,
+            myBookedSlots: myBookedSlots,
+            maidVrcid: maidVrcid,
+          ).isNotEmpty;
+        })
+        .toList();
+  }
+
+  /// 随机女仆。
+  ///
+  /// 每次进入页面后，第一次点击会刷新一次数据库；之后为了避免频繁请求，
+  /// 只使用本地缓存。预约未开放时退化为「随机浏览全部女仆」。
+  Future<void> _openRandomMaid() async {
+    if (_randomPreparing) return;
+
+    if (!_randomPoolPrimed) {
+      setState(() => _randomPreparing = true);
+      try {
+        final snapshot = await MaidCatalogCacheService.refreshSnapshot();
+        if (!mounted) return;
+        setState(() {
+          _applySnapshot(snapshot);
+          _randomPoolPrimed = true;
+        });
+      } catch (_) {
+        // 刷新失败时继续使用本地缓存，不打断随机。
+        if (mounted) {
+          setState(() => _randomPoolPrimed = true);
+        }
+      } finally {
+        if (mounted) setState(() => _randomPreparing = false);
+      }
+    }
+    if (!mounted) return;
+
+    final bookingOpen = _bookingEnabled;
+    final pool = bookingOpen ? _buildRandomPool() : _buildSortedMaids();
+    if (pool.isEmpty) {
+      _showMessage(bookingOpen ? '预约已开启，但当前没有可预约的女仆，请稍后再试' : '暂无可展示的女仆');
+      return;
+    }
+
+    final picked = await showRandomMaidDialog(
+      context,
+      pool.map((item) => item.maid).toList(),
+      canBook: bookingOpen,
+    );
+    if (!mounted || picked == null || !bookingOpen) return;
+
+    final pickedId = _maidUniqueId(picked);
+    final item = pool.firstWhere(
+      (entry) => identical(entry.maid, picked) || entry.uniqueId == pickedId,
+      orElse: () => pool.first,
+    );
+    await _onBookTap(item: item);
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _onBookTap({required MaidViewData item}) async {
     if (item.status != MaidStatus.available) return;
 
@@ -408,13 +485,13 @@ class _BookingPageState extends State<BookingPage> {
     final maidVrcid = (item.maid['vrcid'] ?? '').toString().trim();
     final disabledTimeSlots = _disabledTimeSlotsFor(item.maid);
     final bookableTimeSlots = availableTimeSlots(_timeSlots, disabledTimeSlots);
-    final availableSlots = bookableTimeSlots
-        .where(
-          (slot) =>
-              !_bookedSlotKeys.contains('$maidVrcid|$slot') &&
-              !myBookedSlots.contains(slot),
-        )
-        .toList();
+    final availableSlots = availableTimeSlotsForUser(
+      timeSlots: _timeSlots,
+      disabledTimeSlots: disabledTimeSlots,
+      bookedSlotKeys: _bookedSlotKeys,
+      myBookedSlots: myBookedSlots,
+      maidVrcid: maidVrcid,
+    );
     if (availableSlots.isEmpty) {
       final message = bookableTimeSlots.isEmpty
           ? '今日没有可营业的预约时段'
@@ -604,53 +681,64 @@ class _BookingPageState extends State<BookingPage> {
         .length;
 
     return Scaffold(
-      appBar: MainAppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('预约', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(width: 6),
-            Text(
-              '($availableCount/$totalCount)',
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                color: Theme.of(context).colorScheme.onSurface,
+      // 宽屏左栏已经承担了导航与宣传链接，顶栏不再显示。
+      appBar: ShellScope.isWide(context)
+          ? null
+          : MainAppBar(
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '预约',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '($availableCount/$totalCount)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ],
               ),
+              actions: [
+                TextButton(
+                  onPressed: () async {
+                    final uri = Uri.parse('https://vrcsuki.chat/catlife');
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  },
+                  child: const Text('猫生重开'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: TextButton(
+                    onPressed: () async {
+                      final uri = Uri.parse('https://vrcsuki.chat/catking');
+                      await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    },
+                    child: const Text('猫王争霸'),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              final uri = Uri.parse('https://vrcsuki.chat/catlife');
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
-            },
-            child: const Text('猫生重开'),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: TextButton(
-              onPressed: () async {
-                final uri = Uri.parse('https://vrcsuki.chat/catking');
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-              },
-              child: const Text('猫王争霸'),
-            ),
-          ),
-        ],
-      ),
       floatingActionButton: _loading || _error != null
           ? null
           : FloatingActionButton(
-              onPressed: () {
-                final visibleMaids = _buildSortedMaids()
-                    .where((item) => !_shouldHideMaid(item.maid))
-                    .map((item) => item.maid)
-                    .toList();
-                showRandomMaidDialog(context, visibleMaids);
-              },
+              onPressed: _randomPreparing ? null : _openRandomMaid,
               tooltip: '随机女仆',
-              child: const Icon(Icons.casino_outlined),
+              child: _randomPreparing
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.casino_outlined),
             ),
       body: _buildBody(),
     );
@@ -677,6 +765,10 @@ class _BookingPageState extends State<BookingPage> {
 
     final sortedMaids = _buildSortedMaids();
     final visibleMaids = _filterMaidsBySearch(sortedMaids);
+    final totalCount = sortedMaids.length;
+    final availableCount = sortedMaids
+        .where((item) => item.status == MaidStatus.available)
+        .length;
     return RefreshIndicator(
       onRefresh: () async {
         MaidCatalogCacheService.invalidate();
@@ -706,6 +798,30 @@ class _BookingPageState extends State<BookingPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (ShellScope.isWide(context)) ...[
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '预约',
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '($availableCount/$totalCount)',
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       TextField(
                         controller: _searchController,
                         onChanged: (_) => setState(() {}),

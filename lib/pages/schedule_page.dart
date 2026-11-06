@@ -9,6 +9,7 @@ import '../services/supabase_service.dart';
 import '../utils/display_name.dart';
 import '../utils/time_slot_availability.dart';
 import '../widgets/main_app_bar.dart';
+import '../widgets/responsive_shell.dart';
 
 class _ReservationEntry {
   const _ReservationEntry({
@@ -172,7 +173,9 @@ class _SchedulePageState extends State<SchedulePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const MainAppBar(title: Text('排班')),
+      appBar: ShellScope.isWide(context)
+          ? null
+          : const MainAppBar(title: Text('排班')),
       body: _buildBody(),
     );
   }

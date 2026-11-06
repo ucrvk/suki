@@ -8,17 +8,17 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  supabase_flutter: 2.12.4
+  supabase_flutter: ^2.18.3
   shared_preferences: ^2.5.3
   hive: ^2.2.3
   hive_flutter: ^1.1.0
-  cached_network_image: ^3.4.1
-  cached_network_image_platform_interface: ^4.1.1
+  cached_network_image: ^4.0.6
+  cached_network_image_platform_interface: ^5.0.3
   flutter_staggered_grid_view: ^0.7.0
   http: ^1.2.2
   crypto: ^3.0.7
   url_launcher: ^6.3.1
-  package_info_plus: ^8.0.2
+  package_info_plus: ^10.2.2
 
 dev_dependencies:
   flutter_test:
@@ -29,9 +29,11 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   image_path: "assets/icon.png"
-  # Adaptive icon (Android 8.0+)
-  adaptive_icon_background: "assets/icon.png"
-  adaptive_icon_foreground: "assets/icon.png"
+  # Adaptive icon (Android 8.0+)：纯色背景层 + 白色 logo 前景层
+  adaptive_icon_background: "#F5BDC0"
+  adaptive_icon_foreground: "assets/android_icon_foreground.png"
+  # Android 13+ 主题图标（单色层，由系统着色）
+  adaptive_icon_monochrome: "assets/android_icon_foreground.png"
   web:
     generate: true
     image_path: "assets/icon.png"
@@ -41,6 +43,8 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon_board_inverse.png
   fonts:
     - family: IceMoon
       fonts:

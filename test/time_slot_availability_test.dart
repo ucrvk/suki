@@ -52,4 +52,32 @@ void main() {
       isFalse,
     );
   });
+
+  group('availableTimeSlotsForUser', () {
+    test('excludes closed, booked and already booked by me slots', () {
+      expect(
+        availableTimeSlotsForUser(
+          timeSlots: ['20:30-21:30', '21:30-22:30', '22:30-23:30'],
+          disabledTimeSlots: {'20:30-21:30'},
+          bookedSlotKeys: {'maid-1|21:30-22:30'},
+          myBookedSlots: {'22:30-23:30'},
+          maidVrcid: 'maid-1',
+        ),
+        isEmpty,
+      );
+    });
+
+    test('keeps slots booked by other maids and by other users', () {
+      expect(
+        availableTimeSlotsForUser(
+          timeSlots: ['20:30-21:30', '21:30-22:30', '22:30-23:30'],
+          disabledTimeSlots: const <String>{},
+          bookedSlotKeys: {'maid-2|21:30-22:30'},
+          myBookedSlots: {'22:30-23:30'},
+          maidVrcid: 'maid-1',
+        ),
+        ['20:30-21:30', '21:30-22:30'],
+      );
+    });
+  });
 }

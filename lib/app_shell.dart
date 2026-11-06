@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'pages/booking_page.dart';
 import 'pages/feedback_page.dart';
@@ -8,6 +9,9 @@ import 'pages/me_page.dart';
 import 'pages/queue_page.dart';
 import 'pages/schedule_page.dart';
 import 'services/queue_tab_settings.dart';
+import 'services/supabase_service.dart';
+import 'utils/app_tabs.dart';
+import 'widgets/responsive_shell.dart';
 
 enum TabReselectAction { scrollToTop, refresh }
 
@@ -18,10 +22,58 @@ class TabReselectEvent {
     required this.timestamp,
   });
 
+  /// 逻辑 Tab ID（见 [AppTabs]），不是导航下标。
   final int index;
   final TabReselectAction action;
   final DateTime timestamp;
 }
+
+class _NavItem {
+  const _NavItem({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+}
+
+/// 左栏里「像导航项、但不是页面」的快捷入口：点击直接打开浏览器。
+class _RailAction {
+  const _RailAction({
+    required this.icon,
+    required this.label,
+    required this.url,
+  });
+
+  final IconData icon;
+  final String label;
+  final String url;
+}
+
+const List<_RailAction> _railActions = [
+  _RailAction(
+    icon: Icons.restart_alt_rounded,
+    label: '猫生重开',
+    url: 'https://vrcsuki.chat/catlife',
+  ),
+  _RailAction(
+    icon: Icons.emoji_events_outlined,
+    label: '猫王争霸',
+    url: 'https://vrcsuki.chat/catking',
+  ),
+];
+
+const Map<int, _NavItem> _navItems = {
+  AppTabs.queue: _NavItem(
+    icon: Icons.format_list_numbered_rounded,
+    label: '排队',
+  ),
+  AppTabs.booking: _NavItem(icon: Icons.calendar_month, label: '预约'),
+  AppTabs.schedule: _NavItem(icon: Icons.event_note_outlined, label: '排班'),
+  AppTabs.intro: _NavItem(icon: Icons.menu_book_outlined, label: '介绍'),
+  AppTabs.reviews: _NavItem(icon: Icons.reviews_outlined, label: '评价'),
+  AppTabs.guestbook: _NavItem(icon: Icons.forum_outlined, label: '留言'),
+  AppTabs.photoWall: _NavItem(icon: Icons.photo_library_outlined, label: '照片墙'),
+  AppTabs.me: _NavItem(icon: Icons.person, label: '我'),
+};
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.forceAllBookableForTest = false});
@@ -29,7 +81,8 @@ class AppShell extends StatefulWidget {
   final bool forceAllBookableForTest;
 
   static final ValueNotifier<int> tabIndexNotifier = ValueNotifier<int>(0);
-  static final ValueNotifier<TabReselectEvent?> tabReselectNotifier = ValueNotifier<TabReselectEvent?>(null);
+  static final ValueNotifier<TabReselectEvent?> tabReselectNotifier =
+      ValueNotifier<TabReselectEvent?>(null);
 
   static void switchToTab(int index) {
     tabIndexNotifier.value = index;
@@ -37,144 +90,71 @@ class AppShell extends StatefulWidget {
 
   static bool queueTabEnabled() => QueueTabSettings.enabledNotifier.value;
 
-  static int queueTabIndex() => 0;
+  static int queueTabIndex() => AppTabs.queue;
 
-  static int bookingTabIndex() => queueTabEnabled() ? 1 : 0;
+  static int bookingTabIndex() => AppTabs.booking;
 
-  static int scheduleTabIndex() => queueTabEnabled() ? 2 : 1;
+  static int scheduleTabIndex() => AppTabs.schedule;
 
-  static int feedbackTabIndex() => queueTabEnabled() ? 3 : 2;
+  static int introTabIndex() => AppTabs.intro;
 
-  static int meTabIndex() => queueTabEnabled() ? 4 : 3;
+  /// 「介绍组」的组内 ID，窄屏把四个页面折叠成一项时使用。
+  static int feedbackTabIndex() => AppTabs.intro;
+
+  static int reviewsTabIndex() => AppTabs.reviews;
+
+  static int guestbookTabIndex() => AppTabs.guestbook;
+
+  static int photoWallTabIndex() => AppTabs.photoWall;
+
+  static int meTabIndex() => AppTabs.me;
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
-  int _currentIndex = 0;
+  static const Duration _doubleTapWindow = Duration(milliseconds: 300);
+
+  int _currentTabId = AppTabs.booking;
+  int _feedbackSegment = 0;
+  bool _queueTabEnabled = QueueTabSettings.enabledNotifier.value;
+  bool _loggingOut = false;
+  int? _lastTappedTabId;
+  DateTime? _lastTappedAt;
   late final VoidCallback _tabListener;
   late final VoidCallback _queueTabListener;
-  static const Duration _doubleTapWindow = Duration(milliseconds: 300);
-  int? _lastTappedIndex;
-  DateTime? _lastTappedAt;
-  bool _queueTabEnabled = QueueTabSettings.enabledNotifier.value;
-
-  int _normalizeIndex({
-    required int index,
-    required bool fromQueueEnabled,
-    required bool toQueueEnabled,
-  }) {
-    if (fromQueueEnabled == toQueueEnabled) return index;
-
-    if (toQueueEnabled) {
-      switch (index) {
-        case 0:
-          return 1;
-        case 1:
-          return 2;
-        case 2:
-          return 3;
-        case 3:
-          return 4;
-        default:
-          return 0;
-      }
-    }
-
-    switch (index) {
-      case 0:
-        return 0;
-      case 1:
-        return 0;
-      case 2:
-        return 1;
-      case 3:
-        return 2;
-      case 4:
-        return 3;
-      default:
-        return 0;
-    }
-  }
-
-  List<NavigationDestination> _buildDestinations() {
-    final destinations = <NavigationDestination>[
-      if (_queueTabEnabled)
-        const NavigationDestination(
-          icon: Icon(Icons.format_list_numbered_rounded),
-          label: '排队',
-        ),
-      const NavigationDestination(icon: Icon(Icons.calendar_month), label: '预约'),
-    ];
-    destinations.addAll(const [
-      NavigationDestination(icon: Icon(Icons.event_note_outlined), label: '排班'),
-      NavigationDestination(icon: Icon(Icons.reviews_outlined), label: '介绍'),
-      NavigationDestination(icon: Icon(Icons.person), label: '我'),
-    ]);
-    return destinations;
-  }
-
-  List<Widget> _buildPages() {
-    final pages = <Widget>[
-      if (_queueTabEnabled)
-        const KeyedSubtree(
-          key: ValueKey('queue-page'),
-          child: QueuePage(),
-        ),
-      KeyedSubtree(
-        key: const ValueKey('booking-page'),
-        child: BookingPage(forceAllBookableForTest: widget.forceAllBookableForTest),
-      ),
-    ];
-    pages.addAll(const [
-      KeyedSubtree(
-        key: ValueKey('schedule-page'),
-        child: SchedulePage(),
-      ),
-      KeyedSubtree(
-        key: ValueKey('feedback-page'),
-        child: FeedbackPage(),
-      ),
-      KeyedSubtree(
-        key: ValueKey('me-page'),
-        child: MePage(),
-      ),
-    ]);
-    return pages;
-  }
 
   @override
   void initState() {
     super.initState();
     _tabListener = () {
       if (!mounted) return;
-      setState(() {
-        _currentIndex = AppShell.tabIndexNotifier.value;
-      });
+      final tabId = AppShell.tabIndexNotifier.value;
+      if (tabId == _currentTabId) return;
+      setState(() => _currentTabId = tabId);
     };
     AppShell.tabIndexNotifier.addListener(_tabListener);
+
     _queueTabListener = () {
-      if (!mounted) return;
       final nextEnabled = QueueTabSettings.enabledNotifier.value;
-      if (nextEnabled == _queueTabEnabled) return;
+      if (!mounted || nextEnabled == _queueTabEnabled) return;
       setState(() {
-        final nextIndex = _normalizeIndex(
-          index: _currentIndex,
-          fromQueueEnabled: _queueTabEnabled,
-          toQueueEnabled: nextEnabled,
-        );
         _queueTabEnabled = nextEnabled;
-        _currentIndex = nextIndex;
-        AppShell.tabIndexNotifier.value = nextIndex;
-        _lastTappedIndex = nextIndex;
+        // 排队 tab 被关闭时，如果正停留在排队页就回到预约。
+        if (!nextEnabled && _currentTabId == AppTabs.queue) {
+          _currentTabId = AppTabs.booking;
+          AppShell.tabIndexNotifier.value = _currentTabId;
+        }
+        _lastTappedTabId = null;
         _lastTappedAt = null;
       });
     };
     QueueTabSettings.enabledNotifier.addListener(_queueTabListener);
     unawaited(QueueTabSettings.load());
-    _currentIndex = AppShell.bookingTabIndex();
-    AppShell.tabIndexNotifier.value = _currentIndex;
+
+    _currentTabId = AppShell.bookingTabIndex();
+    AppShell.tabIndexNotifier.value = _currentTabId;
   }
 
   @override
@@ -184,39 +164,173 @@ class _AppShellState extends State<AppShell> {
     super.dispose();
   }
 
+  List<Widget> _buildPages() {
+    return [
+      if (_queueTabEnabled)
+        const KeyedSubtree(key: ValueKey('queue-page'), child: QueuePage()),
+      KeyedSubtree(
+        key: const ValueKey('booking-page'),
+        child: BookingPage(
+          forceAllBookableForTest: widget.forceAllBookableForTest,
+        ),
+      ),
+      const KeyedSubtree(key: ValueKey('schedule-page'), child: SchedulePage()),
+      KeyedSubtree(
+        key: const ValueKey('feedback-page'),
+        child: FeedbackPage(
+          segment: _feedbackSegment,
+          onSegmentChanged: (segment) {
+            if (segment == _feedbackSegment) return;
+            setState(() => _feedbackSegment = segment);
+          },
+        ),
+      ),
+      const KeyedSubtree(key: ValueKey('me-page'), child: MePage()),
+    ];
+  }
+
+  int _currentDestinationId({required bool wide}) {
+    if (AppTabs.isFeedbackGroup(_currentTabId)) {
+      return wide ? AppTabs.intro + _feedbackSegment : AppTabs.intro;
+    }
+    return _currentTabId;
+  }
+
+  void _handleDestinationSelected(int position, {required bool wide}) {
+    final ids = AppTabs.destinationOrder(
+      queueEnabled: _queueTabEnabled,
+      wide: wide,
+    );
+    if (position < 0) return;
+
+    // 宽屏排在真实 Tab 后面的两个快捷入口：直接打开浏览器，不切换页面。
+    if (position >= ids.length) {
+      final actionIndex = position - ids.length;
+      if (actionIndex < _railActions.length) {
+        unawaited(_openExternal(Uri.parse(_railActions[actionIndex].url)));
+      }
+      return;
+    }
+
+    final tabId = ids[position];
+    if (tabId == _currentDestinationId(wide: wide)) {
+      _emitReselect(tabId);
+      return;
+    }
+
+    setState(() {
+      if (AppTabs.isFeedbackGroup(tabId)) {
+        _feedbackSegment = tabId - AppTabs.intro;
+        _currentTabId = wide ? tabId : AppTabs.intro;
+      } else {
+        _currentTabId = tabId;
+      }
+      _lastTappedTabId = tabId;
+      _lastTappedAt = DateTime.now();
+    });
+    AppShell.tabIndexNotifier.value = _currentTabId;
+  }
+
+  void _emitReselect(int tabId) {
+    final now = DateTime.now();
+    final isDoubleTap =
+        _lastTappedTabId == tabId &&
+        _lastTappedAt != null &&
+        now.difference(_lastTappedAt!) <= _doubleTapWindow;
+    AppShell.tabReselectNotifier.value = TabReselectEvent(
+      index: tabId,
+      action: isDoubleTap
+          ? TabReselectAction.refresh
+          : TabReselectAction.scrollToTop,
+      timestamp: now,
+    );
+    _lastTappedTabId = tabId;
+    _lastTappedAt = now;
+  }
+
+  Future<void> _logoutFromRail() async {
+    if (_loggingOut) return;
+    setState(() => _loggingOut = true);
+    try {
+      await SupabaseService.client.auth.signOut();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('退出登录失败：$error')));
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
+  }
+
+  Future<void> _openExternal(Uri uri) async {
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // 左栏链接打不开时静默失败，不影响导航。
+    }
+  }
+
+  Widget _buildRailTrailing() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: ValueListenableBuilder<bool>(
+        valueListenable: MePage.loggedIn,
+        builder: (context, loggedIn, _) {
+          if (!loggedIn) return const SizedBox.shrink();
+          return IconButton(
+            key: const Key('rail-logout-button'),
+            onPressed: _loggingOut ? null : _logoutFromRail,
+            tooltip: '退出登录',
+            icon: _loggingOut
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.logout_rounded),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final wide = ResponsiveShell.isWide(context);
+    final ids = AppTabs.destinationOrder(
+      queueEnabled: _queueTabEnabled,
+      wide: wide,
+    );
+
+    return ResponsiveShell(
       body: IndexedStack(
-        index: _currentIndex,
+        index: AppTabs.bodyIndex(
+          tabId: _currentTabId,
+          queueEnabled: _queueTabEnabled,
+        ),
         children: _buildPages(),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          if (index == _currentIndex) {
-            final now = DateTime.now();
-            final isDoubleTap = _lastTappedIndex == index &&
-                _lastTappedAt != null &&
-                now.difference(_lastTappedAt!) <= _doubleTapWindow;
-            AppShell.tabReselectNotifier.value = TabReselectEvent(
-              index: index,
-              action: isDoubleTap ? TabReselectAction.refresh : TabReselectAction.scrollToTop,
-              timestamp: now,
-            );
-            _lastTappedIndex = index;
-            _lastTappedAt = now;
-            return;
-          }
-          setState(() {
-            _currentIndex = index;
-          });
-          AppShell.tabIndexNotifier.value = index;
-          _lastTappedIndex = index;
-          _lastTappedAt = DateTime.now();
-        },
-        destinations: _buildDestinations(),
+      selectedIndex: AppTabs.destinationIndex(
+        tabId: _currentTabId,
+        feedbackSegment: _feedbackSegment,
+        queueEnabled: _queueTabEnabled,
+        wide: wide,
       ),
+      onDestinationSelected: (position) =>
+          _handleDestinationSelected(position, wide: wide),
+      destinations: [
+        for (final id in ids)
+          ShellDestination(
+            icon: _navItems[id]!.icon,
+            label: _navItems[id]!.label,
+          ),
+        // 宽屏时把两个宣传入口排在「我」下面，外观与普通导航项一致，
+        // 但点击只打开浏览器，不切换页面。
+        if (wide)
+          for (final action in _railActions)
+            ShellDestination(icon: action.icon, label: action.label),
+      ],
+      railTrailing: wide ? _buildRailTrailing() : null,
     );
   }
 }

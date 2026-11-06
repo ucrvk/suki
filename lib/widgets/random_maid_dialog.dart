@@ -4,29 +4,42 @@ import 'package:flutter/material.dart';
 
 import 'timed_cached_network_image.dart';
 
-/// 弹出一个对话框，随机展示一位女仆的头像、昵称、介绍和标签，
-/// 用户可以点击「再来一个」按钮继续随机。
-void showRandomMaidDialog(
+/// 弹出一个对话框，随机展示一位女仆的头像、昵称、介绍和标签。
+///
+/// - [canBook] 为 true 时额外显示「就是TA了」，点击后返回当前女仆，
+///   由调用方继续走预约流程；
+/// - 点「再来一个」只在本地重新抽取，不会发起网络请求；
+/// - 直接关闭弹窗返回 null。
+Future<Map<String, dynamic>?> showRandomMaidDialog(
   BuildContext context,
-  List<Map<String, dynamic>> maids,
-) {
+  List<Map<String, dynamic>> maids, {
+  bool canBook = false,
+  Random? random,
+}) {
   if (maids.isEmpty) {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('没有可展示的女仆')));
-    return;
+    return Future<Map<String, dynamic>?>.value();
   }
 
-  showDialog(
+  return showDialog<Map<String, dynamic>>(
     context: context,
-    builder: (ctx) => _RandomMaidDialog(maids: maids),
+    builder: (ctx) =>
+        _RandomMaidDialog(maids: maids, canBook: canBook, random: random),
   );
 }
 
 class _RandomMaidDialog extends StatefulWidget {
-  const _RandomMaidDialog({required this.maids});
+  const _RandomMaidDialog({
+    required this.maids,
+    required this.canBook,
+    this.random,
+  });
 
   final List<Map<String, dynamic>> maids;
+  final bool canBook;
+  final Random? random;
 
   @override
   State<_RandomMaidDialog> createState() => _RandomMaidDialogState();
@@ -36,7 +49,7 @@ class _RandomMaidDialogState extends State<_RandomMaidDialog>
     with SingleTickerProviderStateMixin {
   late Map<String, dynamic> _currentMaid;
   int _currentIndex = -1;
-  final _random = Random();
+  late final Random _random = widget.random ?? Random();
   late AnimationController _animController;
   late Animation<double> _fadeIn;
 
@@ -242,30 +255,66 @@ class _RandomMaidDialogState extends State<_RandomMaidDialog>
                   ),
                 ),
 
-                // ── 再来一个按钮 ──
+                // ── 操作按钮 ──
                 Padding(
                   padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      setState(() => _pickRandom());
-                    },
-                    icon: const Icon(Icons.casino_outlined, size: 20),
-                    label: const Text(
-                      '再来一个',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF5DAF),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      minimumSize: const Size.fromHeight(44),
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (widget.canBook) ...[
+                        FilledButton.icon(
+                          key: const Key('random-maid-book-button'),
+                          onPressed: () =>
+                              Navigator.of(context).pop(_currentMaid),
+                          icon: const Icon(
+                            Icons.check_circle_outline,
+                            size: 20,
+                          ),
+                          label: const Text(
+                            '就是TA了',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF5DAF),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            minimumSize: const Size.fromHeight(44),
+                          ),
+                        ),
+                        if (widget.maids.length > 1) const SizedBox(height: 10),
+                      ],
+                      if (widget.maids.length > 1)
+                        OutlinedButton.icon(
+                          key: const Key('random-maid-reroll-button'),
+                          onPressed: () {
+                            setState(() => _pickRandom());
+                          },
+                          icon: const Icon(Icons.casino_outlined, size: 20),
+                          label: const Text(
+                            '再来一个',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFFF5DAF),
+                            side: const BorderSide(color: Color(0xFFFF8CC3)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            minimumSize: const Size.fromHeight(44),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],

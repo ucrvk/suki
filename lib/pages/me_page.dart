@@ -13,12 +13,16 @@ import '../services/maid_catalog_cache_service.dart';
 import '../services/queue_tab_settings.dart';
 import '../services/supabase_service.dart';
 import '../widgets/main_app_bar.dart';
+import '../widgets/responsive_shell.dart';
 import 'account_settings_page.dart';
 
 class MePage extends StatefulWidget {
   const MePage({super.key, this.updateService});
 
   final AppUpdateService? updateService;
+
+  /// 供宽屏左侧导航栏显示/隐藏「退出登录」。
+  static final ValueNotifier<bool> loggedIn = ValueNotifier<bool>(false);
 
   @override
   State<MePage> createState() => _MePageState();
@@ -251,6 +255,7 @@ class _MePageState extends State<MePage> {
       _email = email;
       _username = username;
     });
+    MePage.loggedIn.value = _isLoggedIn;
   }
 
   Future<void> _logout() async {
@@ -583,18 +588,21 @@ class _MePageState extends State<MePage> {
 
   @override
   Widget build(BuildContext context) {
+    final wide = ShellScope.isWide(context);
     return Scaffold(
-      appBar: MainAppBar(
-        title: const Text('我'),
-        actions: [
-          if (_isLoggedIn)
-            IconButton(
-              onPressed: _logout,
-              icon: const Icon(Icons.logout),
-              tooltip: '退出登录',
+      appBar: wide
+          ? null
+          : MainAppBar(
+              title: const Text('我'),
+              actions: [
+                if (_isLoggedIn)
+                  IconButton(
+                    onPressed: _logout,
+                    icon: const Icon(Icons.logout),
+                    tooltip: '退出登录',
+                  ),
+              ],
             ),
-        ],
-      ),
       body: _buildBody(),
     );
   }
