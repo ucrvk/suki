@@ -1,4 +1,4 @@
-name: Deploy Web To Cloudflare Workers
+name: Build and Deploy Web to EdgeOne
 
 on:
   push:
@@ -17,6 +17,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate EdgeOne configuration
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+          EDGEONE_PROJECT_NAME: ${{ vars.EDGEONE_PROJECT_NAME }}
+        run: |
+          if [ -z "$EDGEONE_API_TOKEN" ] || [ -z "$EDGEONE_PROJECT_NAME" ]; then
+            echo "::error::Configure secret EDGEONE_API_TOKEN and variable EDGEONE_PROJECT_NAME in repository Actions settings."
+            exit 1
+          fi
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -26,7 +36,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "22.11.0"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -77,8 +87,8 @@ jobs:
           ]
           EOF
 
-      - name: Deploy to Cloudflare Workers
+      - name: Deploy to EdgeOne Makers
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+          EDGEONE_PROJECT_NAME: ${{ vars.EDGEONE_PROJECT_NAME }}
+        run: npx --yes edgeone makers deploy build/web -n "$EDGEONE_PROJECT_NAME" -t "$EDGEONE_API_TOKEN" -e production
