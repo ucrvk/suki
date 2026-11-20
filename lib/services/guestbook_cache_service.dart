@@ -18,6 +18,8 @@ class GuestbookCacheService {
   static const String _cacheKey = 'guestbook_snapshot';
   static const int _pageSize = 100;
 
+  static Future<GuestbookCacheSnapshot>? _refreshing;
+
   static Future<GuestbookCacheSnapshot?> loadCachedSnapshot() async {
     await MaidContentCacheStore.ensureInitialized();
     if (!MaidContentCacheStore.containsKey(_cacheKey)) {
@@ -29,7 +31,13 @@ class GuestbookCacheService {
     return _snapshotFromCache(raw);
   }
 
-  static Future<GuestbookCacheSnapshot> refreshSnapshot() async {
+  static Future<GuestbookCacheSnapshot> refreshSnapshot() {
+    return _refreshing ??= _refreshSnapshot().whenComplete(() {
+      _refreshing = null;
+    });
+  }
+
+  static Future<GuestbookCacheSnapshot> _refreshSnapshot() async {
     final rows = await _fetchAllApprovedEntries();
     final snapshot = GuestbookCacheSnapshot(
       entries: rows,

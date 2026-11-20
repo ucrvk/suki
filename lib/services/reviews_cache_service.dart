@@ -20,6 +20,8 @@ class ReviewsCacheService {
 
   static const String _cacheKey = 'reviews_snapshot';
 
+  static Future<ReviewsCacheSnapshot>? _refreshing;
+
   static Future<ReviewsCacheSnapshot?> loadCachedSnapshot() async {
     await MaidContentCacheStore.ensureInitialized();
     if (!MaidContentCacheStore.containsKey(_cacheKey)) {
@@ -31,7 +33,13 @@ class ReviewsCacheService {
     return _snapshotFromCache(raw);
   }
 
-  static Future<ReviewsCacheSnapshot> refreshSnapshot() async {
+  static Future<ReviewsCacheSnapshot> refreshSnapshot() {
+    return _refreshing ??= _refreshSnapshot().whenComplete(() {
+      _refreshing = null;
+    });
+  }
+
+  static Future<ReviewsCacheSnapshot> _refreshSnapshot() async {
     final raw = await SupabaseService.client.from('suki_reviews').select('*');
     final config = await SupabaseService.client.from('suki_review_config').select('*').limit(1);
 

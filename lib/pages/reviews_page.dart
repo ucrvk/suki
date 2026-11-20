@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 
 import '../app_shell.dart';
+import '../services/global_cache_refresh_service.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/reviews_cache_service.dart';
 import '../services/supabase_service.dart';
@@ -85,6 +86,7 @@ class ReviewsPageState extends State<ReviewsPage> {
   int? _maxReviewsPerUser;
   final ScrollController _scrollController = ScrollController();
   late final VoidCallback _tabReselectListener;
+  late final VoidCallback _globalRefreshListener;
 
   @override
   void initState() {
@@ -97,6 +99,10 @@ class ReviewsPageState extends State<ReviewsPage> {
     if (!widget.embedded) {
       AppShell.tabReselectNotifier.addListener(_tabReselectListener);
     }
+    _globalRefreshListener = () {
+      unawaited(_reloadFromCache());
+    };
+    GlobalCacheRefreshService.revision.addListener(_globalRefreshListener);
     _fetchReviews();
   }
 
@@ -105,6 +111,7 @@ class ReviewsPageState extends State<ReviewsPage> {
     if (!widget.embedded) {
       AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
     }
+    GlobalCacheRefreshService.revision.removeListener(_globalRefreshListener);
     _scrollController.dispose();
     super.dispose();
   }
@@ -172,7 +179,9 @@ class ReviewsPageState extends State<ReviewsPage> {
           _loading = false;
           _error = null;
         });
-        unawaited(_refreshDataInBackground());
+        if (!GlobalCacheRefreshService.recentlyCompleted) {
+          unawaited(_refreshDataInBackground());
+        }
         return;
       }
 
@@ -200,6 +209,41 @@ class ReviewsPageState extends State<ReviewsPage> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _reloadFromCache() async {
+    final cachedReviews = await ReviewsCacheService.loadCachedSnapshot();
+    final cachedCatalog = await MaidCatalogCacheService.loadCachedSnapshot();
+    if (!mounted) return;
+    if (cachedReviews == null && cachedCatalog == null) return;
+
+    final reviewsSnapshot =
+        cachedReviews ??
+        ReviewsCacheSnapshot(
+          rawReviews: const [],
+          presetComments: const [],
+          maxReviewsPerUser: null,
+          fetchedAt: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+    final catalogSnapshot =
+        cachedCatalog ??
+        MaidCatalogSnapshot(
+          maids: const [],
+          reservations: const [],
+          timeSlots: const [],
+          bookingEnabled: true,
+          announcement: '',
+          maidByVrcid: {},
+          maidImageByVrcid: {},
+          hiddenMaidVrcids: {},
+          fetchedAt: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+
+    setState(() {
+      _applySnapshots(reviewsSnapshot, catalogSnapshot);
+      _loading = false;
+      _error = null;
+    });
   }
 
   void _applySnapshots(
@@ -494,6 +538,7 @@ class ReviewsPageState extends State<ReviewsPage> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
+            final scheme = Theme.of(context).colorScheme;
             return SafeArea(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
@@ -553,6 +598,14 @@ class ReviewsPageState extends State<ReviewsPage> {
                               (c) => FilterChip(
                                 label: Text(c),
                                 selected: selectedComments.contains(c),
+                                showCheckmark: false,
+                                selectedColor: scheme.primary,
+                                labelStyle: selectedComments.contains(c)
+                                    ? TextStyle(
+                                        color: scheme.onPrimary,
+                                        fontWeight: FontWeight.w700,
+                                      )
+                                    : null,
                                 onSelected: (selected) {
                                   setSheetState(() {
                                     if (selected) {

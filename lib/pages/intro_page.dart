@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../app_shell.dart';
+import '../services/global_cache_refresh_service.dart';
 import '../services/intro_profile_service.dart';
 import '../utils/display_name.dart';
 import '../widgets/proxy_fallback_image.dart';
@@ -42,6 +43,7 @@ class IntroPageState extends State<IntroPage> {
   List<IntroProfileRecord> _records = const [];
   final ScrollController _scrollController = ScrollController();
   late final VoidCallback _tabReselectListener;
+  late final VoidCallback _globalRefreshListener;
 
   @override
   void initState() {
@@ -54,6 +56,10 @@ class IntroPageState extends State<IntroPage> {
     if (!widget.embedded) {
       AppShell.tabReselectNotifier.addListener(_tabReselectListener);
     }
+    _globalRefreshListener = () {
+      unawaited(_reloadFromCache());
+    };
+    GlobalCacheRefreshService.revision.addListener(_globalRefreshListener);
     _loadData();
   }
 
@@ -62,6 +68,7 @@ class IntroPageState extends State<IntroPage> {
     if (!widget.embedded) {
       AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
     }
+    GlobalCacheRefreshService.revision.removeListener(_globalRefreshListener);
     _scrollController.dispose();
     super.dispose();
   }
@@ -100,7 +107,9 @@ class IntroPageState extends State<IntroPage> {
             _loading = false;
             _error = null;
           });
-          unawaited(_refreshDataInBackground());
+          if (!GlobalCacheRefreshService.recentlyCompleted) {
+            unawaited(_refreshDataInBackground());
+          }
           return;
         }
       }
@@ -125,6 +134,16 @@ class IntroPageState extends State<IntroPage> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _reloadFromCache() async {
+    final cached = await IntroProfileService.loadCachedProfiles();
+    if (!mounted || cached == null) return;
+    setState(() {
+      _records = cached;
+      _loading = false;
+      _error = null;
+    });
   }
 
   Future<void> _refreshDataInBackground() async {

@@ -9,9 +9,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/app_update_service.dart';
 import '../services/auth_log_service.dart';
+import '../services/global_cache_refresh_service.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/queue_tab_settings.dart';
 import '../services/supabase_service.dart';
+import '../widgets/announcement_card.dart';
 import '../widgets/main_app_bar.dart';
 import '../widgets/responsive_shell.dart';
 import 'account_settings_page.dart';
@@ -42,6 +44,7 @@ class _MePageState extends State<MePage> {
   String _appVersion = '-';
   StreamSubscription<AuthState>? _authStateSub;
   late final VoidCallback _queueTabListener;
+  late final VoidCallback _globalRefreshListener;
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -64,6 +67,10 @@ class _MePageState extends State<MePage> {
       }
     };
     QueueTabSettings.enabledNotifier.addListener(_queueTabListener);
+    _globalRefreshListener = () {
+      unawaited(_reloadAnnouncementFromCache());
+    };
+    GlobalCacheRefreshService.revision.addListener(_globalRefreshListener);
     _authStateSub = SupabaseService.client.auth.onAuthStateChange.listen((
       event,
     ) {
@@ -74,6 +81,7 @@ class _MePageState extends State<MePage> {
   @override
   void dispose() {
     QueueTabSettings.enabledNotifier.removeListener(_queueTabListener);
+    GlobalCacheRefreshService.revision.removeListener(_globalRefreshListener);
     _authStateSub?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
@@ -296,7 +304,9 @@ class _MePageState extends State<MePage> {
         setState(() {
           _announcement = cached.announcement;
         });
-        unawaited(_refreshAnnouncement());
+        if (!GlobalCacheRefreshService.recentlyCompleted) {
+          unawaited(_refreshAnnouncement());
+        }
         return;
       }
 
@@ -311,6 +321,14 @@ class _MePageState extends State<MePage> {
         _announcement = '';
       });
     }
+  }
+
+  Future<void> _reloadAnnouncementFromCache() async {
+    final cached = await MaidCatalogCacheService.loadCachedSnapshot();
+    if (!mounted || cached == null) return;
+    setState(() {
+      _announcement = cached.announcement;
+    });
   }
 
   Future<void> _refreshAnnouncement() async {
@@ -717,30 +735,7 @@ class _MePageState extends State<MePage> {
   }
 
   Widget _buildNoticeSection() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
-    final titleColor = isDark
-        ? const Color(0xFFF1EAF8)
-        : const Color(0xFF3A3250);
-    final subColor = isDark ? const Color(0xFFB6AABF) : const Color(0xFF7A7188);
-
-    final text = (_announcement ?? '').trim();
-    return Material(
-      color: cardBg,
-      borderRadius: BorderRadius.circular(20),
-      clipBehavior: Clip.antiAlias,
-      child: ListTile(
-        leading: const Icon(Icons.campaign_outlined),
-        title: Text(
-          '公告',
-          style: TextStyle(fontWeight: FontWeight.w800, color: titleColor),
-        ),
-        subtitle: Text(
-          text.isEmpty ? '暂无公告' : text,
-          style: TextStyle(color: subColor),
-        ),
-      ),
-    );
+    return AnnouncementCard(text: _announcement ?? '');
   }
 
   Widget _buildMetaSection() {

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 
 import '../app_shell.dart';
+import '../services/global_cache_refresh_service.dart';
 import '../services/guestbook_cache_service.dart';
 import '../services/guestbook_service.dart';
 import '../services/supabase_service.dart';
@@ -31,6 +32,7 @@ class GuestbookPageState extends State<GuestbookPage> {
   String? _error;
   final ScrollController _scrollController = ScrollController();
   late final VoidCallback _tabReselectListener;
+  late final VoidCallback _globalRefreshListener;
 
   @override
   void initState() {
@@ -43,6 +45,10 @@ class GuestbookPageState extends State<GuestbookPage> {
     if (!widget.embedded) {
       AppShell.tabReselectNotifier.addListener(_tabReselectListener);
     }
+    _globalRefreshListener = () {
+      unawaited(_reloadFromCache());
+    };
+    GlobalCacheRefreshService.revision.addListener(_globalRefreshListener);
     _loadEntries();
   }
 
@@ -51,6 +57,7 @@ class GuestbookPageState extends State<GuestbookPage> {
     if (!widget.embedded) {
       AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
     }
+    GlobalCacheRefreshService.revision.removeListener(_globalRefreshListener);
     _scrollController.dispose();
     super.dispose();
   }
@@ -99,7 +106,9 @@ class GuestbookPageState extends State<GuestbookPage> {
             _error = null;
             _isLoading = false;
           });
-          unawaited(_refreshEntriesInBackground());
+          if (!GlobalCacheRefreshService.recentlyCompleted) {
+            unawaited(_refreshEntriesInBackground());
+          }
           return;
         }
       }
@@ -127,6 +136,19 @@ class GuestbookPageState extends State<GuestbookPage> {
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _reloadFromCache() async {
+    final cached = await GuestbookCacheService.loadCachedSnapshot();
+    if (!mounted || cached == null) return;
+    setState(() {
+      _entries
+        ..clear()
+        ..addAll(cached.entries);
+      _visibleCount = _preservedVisibleCount(cached.entries.length);
+      _isLoading = false;
+      _error = null;
+    });
   }
 
   Future<void> _onRefresh() async {

@@ -4,32 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app_shell.dart';
+import '../services/global_cache_refresh_service.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
 import '../utils/display_name.dart';
+import '../utils/reservation_details.dart';
 import '../utils/time_slot_availability.dart';
+import '../widgets/appointment_detail_dialog.dart';
 import '../widgets/main_app_bar.dart';
 import '../widgets/responsive_shell.dart';
-
-class _ReservationEntry {
-  const _ReservationEntry({
-    required this.guest,
-    required this.guestUserId,
-    required this.maidName,
-    required this.maidVrcid,
-    required this.timeSlot,
-    required this.withFriend,
-    required this.createdAt,
-  });
-
-  final String guest;
-  final String guestUserId;
-  final String maidName;
-  final String maidVrcid;
-  final String timeSlot;
-  final bool withFriend;
-  final int createdAt;
-}
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
@@ -49,6 +32,7 @@ class _SchedulePageState extends State<SchedulePage> {
   String? _cancelingReservationKey;
   final ScrollController _scrollController = ScrollController();
   late final VoidCallback _tabReselectListener;
+  late final VoidCallback _globalRefreshListener;
 
   @override
   void initState() {
@@ -68,12 +52,17 @@ class _SchedulePageState extends State<SchedulePage> {
       _handleTabReselect(event.action);
     };
     AppShell.tabReselectNotifier.addListener(_tabReselectListener);
+    _globalRefreshListener = () {
+      unawaited(_reloadFromCache());
+    };
+    GlobalCacheRefreshService.revision.addListener(_globalRefreshListener);
     _loadData();
   }
 
   @override
   void dispose() {
     AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
+    GlobalCacheRefreshService.revision.removeListener(_globalRefreshListener);
     _authStateSub?.cancel();
     _scrollController.dispose();
     super.dispose();
@@ -104,7 +93,9 @@ class _SchedulePageState extends State<SchedulePage> {
             _loading = false;
             _error = null;
           });
-          unawaited(_refreshDataInBackground());
+          if (!GlobalCacheRefreshService.recentlyCompleted) {
+            unawaited(_refreshDataInBackground());
+          }
           return;
         }
       }
@@ -131,6 +122,16 @@ class _SchedulePageState extends State<SchedulePage> {
     }
   }
 
+  Future<void> _reloadFromCache() async {
+    final cached = await MaidCatalogCacheService.loadCachedSnapshot();
+    if (!mounted || cached == null) return;
+    setState(() {
+      _snapshot = cached;
+      _loading = false;
+      _error = null;
+    });
+  }
+
   Future<void> _refreshDataInBackground() async {
     try {
       final snapshot = await MaidCatalogCacheService.refreshSnapshot();
@@ -151,21 +152,11 @@ class _SchedulePageState extends State<SchedulePage> {
     return 1;
   }
 
-  List<_ReservationEntry> _parseReservations(List<Map<String, dynamic>> rows) {
+  List<ReservationDetails> _parseReservations(
+    List<Map<String, dynamic>> rows,
+  ) {
     return rows
-        .map(
-          (a) => _ReservationEntry(
-            guest: (a['guestUsername'] ?? '').toString().trim(),
-            guestUserId: (a['guestUserId'] ?? '').toString().trim(),
-            maidName: (a['maidName'] ?? '').toString().trim(),
-            maidVrcid: (a['maidVrcid'] ?? '').toString().trim(),
-            timeSlot: (a['timeSlot'] ?? '').toString().trim(),
-            withFriend: a['withFriend'] == true,
-            createdAt: a['createdAt'] is num
-                ? (a['createdAt'] as num).toInt()
-                : 0,
-          ),
-        )
+        .map(ReservationDetails.fromRow)
         .where((e) => e.maidVrcid.isNotEmpty)
         .toList();
   }
@@ -228,10 +219,10 @@ class _SchedulePageState extends State<SchedulePage> {
     }).toList();
     final reservations = _parseReservations(snapshot.reservations);
 
-    final appointmentsByMaid = <String, List<_ReservationEntry>>{};
+    final appointmentsByMaid = <String, List<ReservationDetails>>{};
     for (final a in reservations) {
       appointmentsByMaid
-          .putIfAbsent(a.maidVrcid, () => <_ReservationEntry>[])
+          .putIfAbsent(a.maidVrcid, () => <ReservationDetails>[])
           .add(a);
     }
 
@@ -314,7 +305,7 @@ class _SchedulePageState extends State<SchedulePage> {
 
   Widget _buildMyAppointmentsCard(
     List<String> timeSlots,
-    List<_ReservationEntry> reservations,
+    List<ReservationDetails> reservations,
   ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
@@ -329,7 +320,7 @@ class _SchedulePageState extends State<SchedulePage> {
         .where((a) => a.guestUserId == userId && a.timeSlot.isNotEmpty)
         .toList();
 
-    final bySlot = <String, _ReservationEntry>{};
+    final bySlot = <String, ReservationDetails>{};
     for (final appointment in myAppointments) {
       bySlot[appointment.timeSlot] = appointment;
     }
@@ -366,7 +357,7 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Future<void> _cancelMyReservation(_ReservationEntry selected) async {
+  Future<void> _cancelMyReservation(ReservationDetails selected) async {
     if (_currentUser == null) return;
 
     final confirmed = await showDialog<bool>(
@@ -427,7 +418,14 @@ class _SchedulePageState extends State<SchedulePage> {
     }
   }
 
-  Widget _buildMySlotLine(String slot, _ReservationEntry? appointment) {
+  Future<void> _showAppointmentDetails(ReservationDetails details) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => AppointmentDetailDialog(details: details),
+    );
+  }
+
+  Widget _buildMySlotLine(String slot, ReservationDetails? appointment) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final lineBg = isDark ? const Color(0xFF2B2530) : const Color(0xFFFFF3F8);
     final normalText = isDark
@@ -445,92 +443,111 @@ class _SchedulePageState extends State<SchedulePage> {
         ? '${appointment.maidVrcid}|${appointment.timeSlot}'
         : '';
     final isCanceling = hasBooking && _cancelingReservationKey == cancelKey;
+    final hasDetails = hasBooking && appointment.hasDetails;
 
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
+      child: Material(
         color: lineBg,
         borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              slot,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: _pink,
-              ),
-            ),
-          ),
-          Flexible(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: hasDetails
+              ? () => _showAppointmentDetails(appointment)
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
-                Icon(
-                  Icons.person,
-                  size: 18,
-                  color: hasBooking
-                      ? const Color(0xFF6A4D93)
-                      : const Color(0xFF9A8FA4),
-                ),
-                const SizedBox(width: 6),
                 Expanded(
-                  child: ResponsiveDisplayName(
-                    name: maidName,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: hasBooking ? normalText : mutedText,
-                    ),
-                  ),
-                ),
-                if (withFriend) ...[
-                  const SizedBox(width: 8),
-                  const Text(
-                    '+1',
-                    style: TextStyle(
-                      fontSize: 14,
+                  child: Text(
+                    slot,
+                    style: const TextStyle(
+                      fontSize: 15,
                       fontWeight: FontWeight.w800,
                       color: _pink,
                     ),
                   ),
-                ],
-                if (hasBooking) ...[
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: isCanceling
-                        ? null
-                        : () => _cancelMyReservation(appointment),
-                    style: TextButton.styleFrom(
-                      foregroundColor: _pink,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
+                ),
+                Flexible(
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.person,
+                        size: 18,
+                        color: hasBooking
+                            ? const Color(0xFF6A4D93)
+                            : const Color(0xFF9A8FA4),
                       ),
-                      minimumSize: const Size(0, 0),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: isCanceling
-                        ? const SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text(
-                            '取消',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: ResponsiveDisplayName(
+                          name: maidName,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: hasBooking ? normalText : mutedText,
                           ),
+                        ),
+                      ),
+                      if (withFriend) ...[
+                        const SizedBox(width: 8),
+                        const Text(
+                          '+1',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: _pink,
+                          ),
+                        ),
+                      ],
+                      if (hasDetails) ...[
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.info_outline,
+                          size: 16,
+                          color: _pink,
+                        ),
+                      ],
+                      if (hasBooking) ...[
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: isCanceling
+                              ? null
+                              : () => _cancelMyReservation(appointment),
+                          style: TextButton.styleFrom(
+                            foregroundColor: _pink,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            minimumSize: const Size(0, 0),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: isCanceling
+                              ? const SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text(
+                                  '取消',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                        ),
+                      ],
+                    ],
                   ),
-                ],
+                ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -539,7 +556,7 @@ class _SchedulePageState extends State<SchedulePage> {
     required Map<String, dynamic> maid,
     required List<String> timeSlots,
     required Set<String> disabledTimeSlots,
-    required List<_ReservationEntry> appointments,
+    required List<ReservationDetails> appointments,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF1F1B24) : Colors.white;
@@ -549,13 +566,13 @@ class _SchedulePageState extends State<SchedulePage> {
     final mutedColor = isDark
         ? const Color(0xFFB6AABF)
         : const Color(0xFF7D7178);
-    final slotToAppointments = <String, List<_ReservationEntry>>{};
+    final slotToAppointments = <String, List<ReservationDetails>>{};
     for (final slot in timeSlots) {
-      slotToAppointments[slot] = <_ReservationEntry>[];
+      slotToAppointments[slot] = <ReservationDetails>[];
     }
     for (final a in appointments) {
       slotToAppointments
-          .putIfAbsent(a.timeSlot, () => <_ReservationEntry>[])
+          .putIfAbsent(a.timeSlot, () => <ReservationDetails>[])
           .add(a);
     }
 
@@ -652,7 +669,7 @@ class _SchedulePageState extends State<SchedulePage> {
 
   Widget _buildSlotLine(
     String slot,
-    List<_ReservationEntry> list,
+    List<ReservationDetails> list,
     bool disabledTimeSlot,
   ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -667,70 +684,88 @@ class _SchedulePageState extends State<SchedulePage> {
     final notOperating = disabledTimeSlot && !booked;
     final first = booked ? list.first : null;
     final withFriend = booked && first!.withFriend;
+    final hasDetails = booked && first!.hasDetails;
 
     String guestText;
     if (!booked) {
       guestText = notOperating ? '该时段不营业' : '空闲';
     } else {
-      final base = (first!.guest.isEmpty ? '匿名' : first.guest);
-      guestText = base;
+      guestText = first!.guestDisplay;
     }
 
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
+      child: Material(
         color: lineBg,
         borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              slot,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: _pink,
-              ),
-            ),
-          ),
-          Flexible(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: hasDetails
+              ? () => _showAppointmentDetails(first)
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
-                Icon(
-                  notOperating ? Icons.event_busy_outlined : Icons.person,
-                  size: 18,
-                  color: booked
-                      ? const Color(0xFF6A4D93)
-                      : const Color(0xFF9A8FA4),
-                ),
-                const SizedBox(width: 6),
                 Expanded(
-                  child: ResponsiveDisplayName(
-                    name: guestText,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: booked ? normalText : mutedText,
-                    ),
-                  ),
-                ),
-                if (withFriend) ...[
-                  const SizedBox(width: 8),
-                  const Text(
-                    '+1',
-                    style: TextStyle(
-                      fontSize: 14,
+                  child: Text(
+                    slot,
+                    style: const TextStyle(
+                      fontSize: 15,
                       fontWeight: FontWeight.w800,
                       color: _pink,
                     ),
                   ),
-                ],
+                ),
+                Flexible(
+                  child: Row(
+                    children: [
+                      Icon(
+                        notOperating
+                            ? Icons.event_busy_outlined
+                            : Icons.person,
+                        size: 18,
+                        color: booked
+                            ? const Color(0xFF6A4D93)
+                            : const Color(0xFF9A8FA4),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: ResponsiveDisplayName(
+                          name: guestText,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: booked ? normalText : mutedText,
+                          ),
+                        ),
+                      ),
+                      if (withFriend) ...[
+                        const SizedBox(width: 8),
+                        const Text(
+                          '+1',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: _pink,
+                          ),
+                        ),
+                      ],
+                      if (hasDetails) ...[
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.info_outline,
+                          size: 16,
+                          color: _pink,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

@@ -39,6 +39,8 @@ class IntroProfileService {
 
   static const String _cacheKey = 'intro_profile_records';
 
+  static Future<List<IntroProfileRecord>>? _refreshing;
+
   static Future<List<IntroProfileRecord>?> loadCachedProfiles() async {
     await MaidContentCacheStore.ensureInitialized();
     if (!MaidContentCacheStore.containsKey(_cacheKey)) {
@@ -51,7 +53,13 @@ class IntroProfileService {
     return records;
   }
 
-  static Future<List<IntroProfileRecord>> refreshProfiles() async {
+  static Future<List<IntroProfileRecord>> refreshProfiles() {
+    return _refreshing ??= _refreshProfiles().whenComplete(() {
+      _refreshing = null;
+    });
+  }
+
+  static Future<List<IntroProfileRecord>> _refreshProfiles() async {
     final records = await _fetchProfilesFromNetwork();
     await MaidContentCacheStore.ensureInitialized();
     await MaidContentCacheStore.write(
