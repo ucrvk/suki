@@ -6,11 +6,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app_shell.dart';
 import '../services/booking_service.dart';
+import '../services/global_cache_refresh_service.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/supabase_service.dart';
+import '../utils/maid_services.dart';
 import '../utils/time_slot_availability.dart';
 import '../widgets/main_app_bar.dart';
 import '../widgets/maid_card.dart';
+import '../widgets/maid_service_picker.dart';
 import '../widgets/random_maid_dialog.dart';
 import '../widgets/responsive_shell.dart';
 
@@ -58,6 +61,7 @@ class _BookingPageState extends State<BookingPage> {
   User? _currentUser;
   StreamSubscription<AuthState>? _authStateSub;
   late final VoidCallback _tabReselectListener;
+  late final VoidCallback _globalRefreshListener;
 
   @override
   void initState() {
@@ -78,12 +82,17 @@ class _BookingPageState extends State<BookingPage> {
       _handleTabReselect(event.action);
     };
     AppShell.tabReselectNotifier.addListener(_tabReselectListener);
+    _globalRefreshListener = () {
+      unawaited(_reloadFromCache());
+    };
+    GlobalCacheRefreshService.revision.addListener(_globalRefreshListener);
     _initPage();
   }
 
   @override
   void dispose() {
     AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
+    GlobalCacheRefreshService.revision.removeListener(_globalRefreshListener);
     _authStateSub?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
@@ -211,7 +220,9 @@ class _BookingPageState extends State<BookingPage> {
             _loading = false;
             _error = null;
           });
-          unawaited(_refreshMaidsInBackground());
+          if (!GlobalCacheRefreshService.recentlyCompleted) {
+            unawaited(_refreshMaidsInBackground());
+          }
           return;
         }
       }
@@ -236,6 +247,16 @@ class _BookingPageState extends State<BookingPage> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _reloadFromCache() async {
+    final cached = await MaidCatalogCacheService.loadCachedSnapshot();
+    if (!mounted || cached == null) return;
+    setState(() {
+      _applySnapshot(cached);
+      _loading = false;
+      _error = null;
+    });
   }
 
   void _applySnapshot(MaidCatalogSnapshot snapshot) {
@@ -504,110 +525,153 @@ class _BookingPageState extends State<BookingPage> {
 
     String selectedSlot = availableSlots.first;
     bool withFriend = false;
+    final serviceOptions = MaidServiceOptions.fromMaid(item.maid);
+    Set<String> selectedServices = <String>{};
     final friendVrcidController = TextEditingController();
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (sheetContext) {
+        final media = MediaQuery.of(sheetContext);
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '确认预约',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text('女仆：${(item.maid['name'] ?? '未命名').toString()}'),
-                    const SizedBox(height: 10),
-                    const Text(
-                      '选择时段',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      children: _timeSlots.map((slot) {
-                        final booked = _bookedSlotKeys.contains(
-                          '$maidVrcid|$slot',
-                        );
-                        final alreadyBookedByMe = myBookedSlots.contains(slot);
-                        final notOperating = disabledTimeSlots.contains(slot);
-                        final disabled =
-                            notOperating || booked || alreadyBookedByMe;
-                        return ChoiceChip(
-                          label: Text(
-                            notOperating
-                                ? '$slot（该时段不营业）'
-                                : booked
-                                ? '$slot（已约）'
-                                : alreadyBookedByMe
-                                ? '$slot（你已约）'
-                                : slot,
+            final scheme = Theme.of(context).colorScheme;
+            return Padding(
+              padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+              child: SafeArea(
+                top: false,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: media.size.height * 0.85,
+                  ),
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '确认预约',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w700),
                           ),
-                          selected: selectedSlot == slot,
-                          onSelected: disabled
-                              ? null
-                              : (_) {
-                                  setSheetState(() => selectedSlot = slot);
-                                },
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: withFriend,
-                      onChanged: (value) {
-                        setSheetState(() {
-                          withFriend = value;
-                        });
-                      },
-                      title: const Text('是否带朋友'),
-                    ),
-                    if (withFriend) ...[
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: friendVrcidController,
-                        textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
-                          labelText: '好友 VRCID',
-                          hintText: '请输入好友的 VRCID',
-                          border: OutlineInputBorder(),
-                        ),
+                          const SizedBox(height: 10),
+                          Text('女仆：${(item.maid['name'] ?? '未命名').toString()}'),
+                          const SizedBox(height: 10),
+                          const Text(
+                            '选择时段',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: _timeSlots.map((slot) {
+                              final booked = _bookedSlotKeys.contains(
+                                '$maidVrcid|$slot',
+                              );
+                              final alreadyBookedByMe = myBookedSlots.contains(
+                                slot,
+                              );
+                              final notOperating = disabledTimeSlots.contains(
+                                slot,
+                              );
+                              final disabled =
+                                  notOperating || booked || alreadyBookedByMe;
+                              final isSelected = selectedSlot == slot;
+                              return ChoiceChip(
+                                label: Text(
+                                  notOperating
+                                      ? '$slot（该时段不营业）'
+                                      : booked
+                                      ? '$slot（已约）'
+                                      : alreadyBookedByMe
+                                      ? '$slot（你已约）'
+                                      : slot,
+                                ),
+                                selected: isSelected,
+                                showCheckmark: false,
+                                selectedColor: scheme.primary,
+                                labelStyle: isSelected
+                                    ? TextStyle(
+                                        color: scheme.onPrimary,
+                                        fontWeight: FontWeight.w700,
+                                      )
+                                    : null,
+                                onSelected: disabled
+                                    ? null
+                                    : (_) {
+                                        setSheetState(
+                                          () => selectedSlot = slot,
+                                        );
+                                      },
+                              );
+                            }).toList(),
+                          ),
+                          if (serviceOptions.isSelectable) ...[
+                            const SizedBox(height: 12),
+                            MaidServicePicker(
+                              options: serviceOptions,
+                              selected: selectedServices,
+                              onChanged: (next) {
+                                setSheetState(() => selectedServices = next);
+                              },
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: withFriend,
+                            onChanged: (value) {
+                              setSheetState(() {
+                                withFriend = value;
+                              });
+                            },
+                            title: const Text('是否带朋友'),
+                          ),
+                          if (withFriend) ...[
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: friendVrcidController,
+                              textInputAction: TextInputAction.done,
+                              decoration: const InputDecoration(
+                                labelText: '好友 VRCID',
+                                hintText: '请输入好友的 VRCID',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton(
+                              onPressed: () {
+                                if (!availableSlots.contains(selectedSlot)) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('所选时段暂不可预约')),
+                                  );
+                                  return;
+                                }
+                                if (withFriend &&
+                                    friendVrcidController.text.trim().isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('请先填写好友 VRCID'),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                Navigator.of(sheetContext).pop(true);
+                              },
+                              child: const Text('确认预约'),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: () {
-                          if (!availableSlots.contains(selectedSlot)) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('所选时段暂不可预约')),
-                            );
-                            return;
-                          }
-                          if (withFriend &&
-                              friendVrcidController.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('请先填写好友 VRCID')),
-                            );
-                            return;
-                          }
-                          Navigator.of(sheetContext).pop(true);
-                        },
-                        child: const Text('确认预约'),
-                      ),
                     ),
-                  ],
+                  ),
                 ),
               ),
             );
@@ -627,6 +691,9 @@ class _BookingPageState extends State<BookingPage> {
     }
 
     final submitKey = '${item.uniqueId}|$selectedSlot';
+    final services = serviceOptions
+        .sanitizeSelection(selectedServices)
+        .toList();
     setState(() {
       _submittingKeys.add(submitKey);
     });
@@ -637,6 +704,7 @@ class _BookingPageState extends State<BookingPage> {
         timeSlot: selectedSlot,
         withFriend: withFriend,
         friendVrcid: friendVrcidController.text,
+        services: services,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(

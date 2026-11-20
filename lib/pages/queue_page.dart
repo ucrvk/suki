@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app_shell.dart';
 import '../services/auth_log_service.dart';
+import '../services/global_cache_refresh_service.dart';
 import '../services/maid_catalog_cache_service.dart';
 import '../services/sysbooking_api_service.dart';
 import '../services/sysbooking_session_store.dart';
@@ -23,6 +24,7 @@ class _QueuePageState extends State<QueuePage> {
   final ScrollController _scrollController = ScrollController();
   late final VoidCallback _tabListener;
   late final VoidCallback _tabReselectListener;
+  late final VoidCallback _globalRefreshListener;
 
   bool _loading = false;
   bool _promptingLogin = false;
@@ -40,6 +42,10 @@ class _QueuePageState extends State<QueuePage> {
     _tabReselectListener = _handleTabReselect;
     AppShell.tabIndexNotifier.addListener(_tabListener);
     AppShell.tabReselectNotifier.addListener(_tabReselectListener);
+    _globalRefreshListener = () {
+      unawaited(_reloadCatalogFromCache());
+    };
+    GlobalCacheRefreshService.revision.addListener(_globalRefreshListener);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_maybeBootstrap());
@@ -50,6 +56,7 @@ class _QueuePageState extends State<QueuePage> {
   void dispose() {
     AppShell.tabIndexNotifier.removeListener(_tabListener);
     AppShell.tabReselectNotifier.removeListener(_tabReselectListener);
+    GlobalCacheRefreshService.revision.removeListener(_globalRefreshListener);
     _scrollController.dispose();
     super.dispose();
   }
@@ -83,6 +90,14 @@ class _QueuePageState extends State<QueuePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_maybeBootstrap(forceRefresh: true));
+    });
+  }
+
+  Future<void> _reloadCatalogFromCache() async {
+    final cached = await MaidCatalogCacheService.loadCachedSnapshot();
+    if (!mounted || cached == null) return;
+    setState(() {
+      _applyCatalogSnapshot(cached);
     });
   }
 
