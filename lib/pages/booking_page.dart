@@ -979,6 +979,7 @@ class _BookingPageState extends State<BookingPage> {
                         children: [
                           for (final item in visibleMaids)
                             SizedBox(
+                              key: ValueKey(item.uniqueId),
                               width: itemWidth,
                               child: MaidCard(
                                 maid: item.maid,

@@ -14,7 +14,7 @@ class TimedCachedNetworkImage extends StatefulWidget {
     this.alignment = Alignment.center,
     this.width,
     this.height,
-    this.timeout = const Duration(seconds: 20),
+    this.timeout,
   });
 
   final String imageUrl;
@@ -24,7 +24,7 @@ class TimedCachedNetworkImage extends StatefulWidget {
   final Alignment alignment;
   final double? width;
   final double? height;
-  final Duration timeout;
+  final Duration? timeout;
 
   @override
   State<TimedCachedNetworkImage> createState() =>
@@ -42,7 +42,7 @@ class _TimedCachedNetworkImageState extends State<TimedCachedNetworkImage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_timedOut) {
+    if (_timedOut && widget.timeout != null) {
       return widget.errorWidget(
         context,
         widget.imageUrl,
@@ -57,13 +57,15 @@ class _TimedCachedNetworkImageState extends State<TimedCachedNetworkImage> {
       alignment: widget.alignment,
       width: widget.width,
       height: widget.height,
-      placeholder: (context, url) => _TimedPlaceholder(
-        timeout: widget.timeout,
-        onTimeout: () {
-          if (mounted) setState(() => _timedOut = true);
-        },
-        child: widget.placeholder(context, url),
-      ),
+      placeholder: widget.timeout == null
+          ? widget.placeholder
+          : (context, url) => _TimedPlaceholder(
+                timeout: widget.timeout!,
+                onTimeout: () {
+                  if (mounted) setState(() => _timedOut = true);
+                },
+                child: widget.placeholder(context, url),
+              ),
       errorWidget: widget.errorWidget,
     );
   }
